@@ -1,0 +1,84 @@
+name: 每日A股持仓复盘
+
+on:
+  schedule:
+    # GitHub Actions 使用 UTC。07:30 UTC = 中国时间 15:30（A股收盘后）
+    # 仅能排除周末，无法自动识别中国法定节假日 —— 非交易日由脚本自动跳过。
+    - cron: '30 7 * * 1-5'
+  workflow_dispatch:   # 手动触发，便于补跑
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-review
+  cancel-in-progress: false
+
+jobs:
+  review:
+    name: 抓取行情并生成复盘
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 抓取行情
+        run: python scripts/fetch_market.py data
+
+      - name: 判定交易日
+        id: cal
+        run: |
+          DATE=$(python -c "import json;print(json.load(open('data/market.json'))['trade_date'])")
+          TODAY=$(TZ=Asia/Shanghai date +%F)
+          if [ "$DATE" = "$TODAY" ]; then
+            echo "is_trading=true" >> $GITHUB_OUTPUT
+            echo "今日为交易日 ($DATE)，生成复盘"
+          else
+            echo "is_trading=false" >> $GITHUB_OUTPUT
+            echo "今日非交易日（最新行情日期 $DATE），跳过发布"
+          fi
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+
+      - name: 生成 HTML 复盘
+        if: steps.cal.outputs.is_trading == 'true'
+        run: |
+          DATE=${{ steps.cal.outputs.date }}
+          mkdir -p site
+          python scripts/generate_report.py data/market.json "site/$DATE.html"
+          cp "site/$DATE.html" site/latest.html
+
+      - name: 更新站点索引
+        if: steps.cal.outputs.is_trading == 'true'
+        run: python scripts/update_index.py site
+
+      - name: 发布到 gh-pages
+        if: steps.cal.outputs.is_trading == 'true'
+        env:
+          DATE: ${{ steps.cal.outputs.date }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cd site
+          git init -q
+          git checkout -q -B gh-pages
+          git add -A
+          git commit -q -m "复盘 ${DATE}"
+          git push -q -f \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+            gh-pages
+          echo "已发布 ${DATE} 到 gh-pages"
+
+      - name: 上传原始数据存档
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-data-${{ steps.cal.outputs.date }}
+          path: data/market.json
+          retention-days: 90
