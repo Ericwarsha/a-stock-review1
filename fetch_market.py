@@ -12,6 +12,7 @@ A股每日复盘 - 行情抓取（纯标准库，无第三方依赖）
 """
 import json
 import os
+import random
 import sys
 import time
 import urllib.request
@@ -25,8 +26,12 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 
-def _get(url, retries=5, timeout=25):
-    """GET JSON，失败返回 None（绝不抛错到上层）。"""
+def _get(url, retries=10, timeout=20):
+    """GET JSON，失败返回 None（绝不抛错到上层）。
+
+    东财对本机是"间歇性掐连接"而非彻底封禁：同一个 URL 可能这次通、下次
+    直接 Remote end closed。所以重试要拉长并带随机抖动，撞上放行窗口就拿到了。
+    """
     for i in range(retries):
         try:
             req = urllib.request.Request(url, headers={
@@ -34,6 +39,7 @@ def _get(url, retries=5, timeout=25):
                 "Referer": "https://quote.eastmoney.com/",
                 "Accept": "*/*",
                 "Accept-Language": "zh-CN,zh;q=0.9",
+                "Connection": "close",
             })
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.loads(r.read().decode("utf-8", "replace"))
@@ -41,7 +47,7 @@ def _get(url, retries=5, timeout=25):
             if i == retries - 1:
                 print("  [FAIL] %s -> %s" % (url[:90], e))
                 return None
-            time.sleep(min(2 ** i, 8))
+            time.sleep(min(1.5 ** i, 6) + random.uniform(0, 0.8))
     return None
 
 
@@ -49,6 +55,69 @@ def _diff(js):
     if not js or not isinstance(js.get("data"), dict):
         return []
     return js["data"].get("diff") or []
+
+
+# ------------------------------------------------- 备用源：腾讯 qt.gtimg.cn
+def tx_code(secid):
+    """东财 secid -> 腾讯代码。
+
+    必须以东财的 mkt 前缀为准，不能看代码首位数字：沪市指数 1.000001(上证)
+    和 1.000688(科创50) 首位都是 0，按首位判会误拉成 sz000001(平安银行)、
+    sz000688(国城矿业)。只有北交所 8 开头需要特殊处理。
+    """
+    if "." not in secid:
+        return secid
+    mkt, code = secid.split(".")
+    if code[:1] == "8":
+        return "bj" + code
+    return ("sh" if mkt == "1" else "sz") + code
+
+
+def _tx(secids, retries=4):
+    """腾讯行情兜底。返回 {东财code: {...}}。
+
+    东财对本机是间歇性掐连接，一旦抽风整个复盘就断。这个源独立于东财，
+    且字段含义已与东财逐项比对确认（13/13 完全一致）：
+      p[3]=最新 p[4]=昨收 p[31]=涨跌 p[32]=涨跌%
+      p[30]=行情时间 yyyyMMddHHmmss
+      p[35]=价格/成交量(手)/成交额(元)，取第三段
+    涨跌家数腾讯不提供，恒为 None，由报告层标注"数据暂未获取"。
+    """
+    secids = list(secids)
+    if not secids:
+        return {}
+    url = "https://qt.gtimg.cn/q=" + ",".join(tx_code(s) for s in secids)
+    for i in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": UA, "Referer": "https://gu.qq.com/"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                raw = r.read().decode("gbk", "replace")
+            back = {s.split(".")[1]: s.split(".")[1] for s in secids}
+            out = {}
+            for line in raw.split("\n"):
+                if "~" not in line:
+                    continue
+                p = line.split("~")
+                if len(p) < 38:
+                    continue
+                code = back.get(p[2])
+                if not code:
+                    continue
+                try:
+                    amt = float(p[35].split("/")[2]) if "/" in p[35] else None
+                    out[code] = {"name": p[1].strip(), "close": float(p[3]),
+                                 "pct": float(p[32]), "chg": float(p[31]),
+                                 "amount": amt, "time": p[30]}
+                except (ValueError, IndexError):
+                    continue
+            if out:
+                return out
+        except Exception as e:
+            if i == retries - 1:
+                print("  [FAIL] 腾讯备用源 -> %s" % e)
+        time.sleep(1.5 ** i + random.uniform(0, 0.5))
+    return {}
 
 
 # ---------------------------------------------------------------- 交易日
@@ -80,15 +149,41 @@ def trading_day():
             trade_date, quote_time = dt.date().isoformat(), dt.isoformat()
 
     if not trade_date:
-        print("  [WARN] 两个交易日数据源均失败，无法判定交易日")
+        # 第三道备用源：ulist.np/get 实测可用性最好（stock/get、clist/get
+        # 会被服务端间歇性掐断，而它同时也是指数/持仓的主力接口）。
+        # f124 = 最新行情时间戳；休市日该值会停留在上一个交易日的收盘时刻，
+        # 因此它天然给出"最近一个交易日"，与日K线主源语义一致。
+        js = _get("https://push2.eastmoney.com/api/qt/ulist.np/get"
+                  "?fltt=2&secids=1.000001&fields=f124")
+        for row in _diff(js):
+            if row.get("f124"):
+                dt = datetime.fromtimestamp(row["f124"], CST)
+                trade_date, quote_time = dt.date().isoformat(), dt.isoformat()
+                break
+
+    if not trade_date:
+        # 第四道备用源：腾讯行情。独立于东财，几乎不受东财掐连接影响，
+        # p[30] 行情时间前 8 位即行情日期，休市日会停在上一个交易日。
+        for row in _tx(["1.000001"]).values():
+            if row.get("time"):
+                ts = str(row["time"])
+                if len(ts) >= 8:
+                    d = ts[:8]
+                    trade_date = "%s-%s-%s" % (d[:4], d[4:6], d[6:8])
+                    quote_time = "%s %s:%s:%s" % (
+                        trade_date, ts[8:10], ts[10:12], ts[12:14])
+                break
+
+    if not trade_date:
+        print("  [WARN] 四个交易日数据源均失败，无法判定交易日")
     return trade_date, quote_time
 
 
 # ---------------------------------------------------------------- 指数
 def fetch_indexes():
-    ids = ",".join(x[0] for x in config.INDEXES)
+    ids = [x[0] for x in config.INDEXES]
     url = ("https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=%s"
-           "&fields=f2,f3,f4,f5,f6,f12,f14,f104,f105,f106" % ids)
+           "&fields=f2,f3,f4,f5,f6,f12,f14,f104,f105,f106" % ",".join(ids))
     out = {}
     for d in _diff(_get(url)):
         code, name = d.get("f12"), d.get("f14")
@@ -102,15 +197,24 @@ def fetch_indexes():
             "down": d.get("f105"),
             "flat": d.get("f106"),
         }
+    # 东财缺位的用腾讯补（涨跌家数腾讯不提供，保留 None）
+    miss = [s for s in ids if s.split(".")[1] not in out]
+    if miss:
+        print("  [补源] 指数缺 %d 个，走腾讯" % len(miss))
+        for code, row in _tx(miss).items():
+            out[code] = {"name": row["name"], "close": row["close"],
+                         "pct": row["pct"], "chg": row["chg"],
+                         "amount": row["amount"],
+                         "up": None, "down": None, "flat": None}
     return out
 
 
 # ---------------------------------------------------------------- 持仓
 def fetch_portfolio():
-    ids = ",".join(config.secid(c) for c, *_ in config.PORTFOLIO)
-    ids += "," + ",".join(config.secid(c) for c, _ in config.WATCH_ETFS)
+    ids = [config.secid(c) for c, *_ in config.PORTFOLIO]
+    ids += [config.secid(c) for c, _ in config.WATCH_ETFS]
     url = ("https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=%s"
-           "&fields=f2,f3,f4,f5,f6,f12,f14" % ids)
+           "&fields=f2,f3,f4,f5,f6,f12,f14" % ",".join(ids))
     raw = {}
     for d in _diff(_get(url)):
         raw[d.get("f12")] = {
@@ -119,6 +223,13 @@ def fetch_portfolio():
             "chg": _num(d.get("f4")),
             "amount": _num(d.get("f6")),
         }
+    # 东财缺位的用腾讯补齐，持仓价格是报告核心，绝不能留空
+    miss = [s for s in ids if s.split(".")[1] not in raw]
+    if miss:
+        print("  [补源] 持仓缺 %d 个，走腾讯" % len(miss))
+        for code, row in _tx(miss).items():
+            raw[code] = {"close": row["close"], "pct": row["pct"],
+                         "chg": row["chg"], "amount": row["amount"]}
     out = {}
     for code, name, cost, shares, kind in config.PORTFOLIO:
         q = raw.get(code, {})
@@ -297,9 +408,35 @@ def main():
         "triggers": trig, "triggered_count": up, "trigger_total": len(trig),
     }
     path = os.path.join(outdir, "market.json")
+    # 东财对本机是间歇性掐连接，一次失败的全量运行会把上一轮已经抓到的
+    # 好数据整个覆盖掉（指数清空、持仓全 null）。这里做一次完整度仲裁：
+    # 新数据比磁盘上已有的更差就不落盘，保住最后一次可用快照。
+    score = len(idx) + len([v for v in pf.values() if v.get("close")]) \
+        + (2 if trade_date else 0)
+    best, old = -1, None
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                old = json.load(f)
+            opf = old.get("portfolio") or {}
+            best = len(old.get("indexes") or {}) \
+                + len([v for v in opf.values() if v.get("close")]) \
+                + (2 if old.get("trade_date") else 0)
+        except Exception:
+            old, best = None, -1
+    if score < best:
+        print("\n!! 新抓取完整度 %d < 磁盘已有 %d，保留旧快照不覆盖"
+              % (score, best))
+        print("!! 旧快照行情日期=%s 指数=%d 持仓=%d"
+              % (old.get("trade_date"), len(old.get("indexes") or {}),
+                 len([v for v in (old.get("portfolio") or {}).values()
+                      if v.get("close")])))
+        print("完成(沿用旧快照) -> %s" % path)
+        return
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    print("\n完成 -> %s  (触发 %d/%d)" % (path, up, len(trig)))
+    print("\n完成 -> %s  (触发 %d/%d, 完整度 %d)"
+          % (path, up, len(trig), score))
 
 
 if __name__ == "__main__":
