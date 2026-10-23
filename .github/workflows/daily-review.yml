@@ -16,6 +16,9 @@ jobs:
           python-version: '3.12'
       - name: 抓取并生成并发布
         run: python publish.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
       - name: 存档
         if: always()
         uses: actions/upload-artifact@v4
