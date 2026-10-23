@@ -16,35 +16,54 @@ jobs:
           python-version: '3.12'
       - name: 抓取并生成
         run: |
-          python fetch_market.py data
-          DATE=$(python -c "import json;print(json.load(open('data/market.json'))['trade_date'])")
-          TODAY=$(TZ=Asia/Shanghai date +%F)
-          if [ "$DATE" != "$TODAY" ]; then
-            echo "非交易日（最新行情 $DATE），跳过发布"
-            exit 0
-          fi
-          mkdir -p site
-          python generate_report.py data/market.json "site/$DATE.html"
-          cp "site/$DATE.html" site/latest.html
-          python update_index.py site
-          echo "生成完成 $DATE"
+          python fetch_market.py data 2>&1 | tee fetch.log
+          echo "=============== 抓取日志结束 ==============="
+          cat fetch.log
+          python - <<'PY'
+          import json, os, shutil, subprocess, sys
+          from datetime import datetime, timezone, timedelta
+          CST = timezone(timedelta(hours=8))
+          d = json.load(open('data/market.json', encoding='utf-8'))
+          trade = d.get('trade_date')
+          today = datetime.now(CST).date().isoformat()
+          ix = d.get('indexes') or {}
+          print("### 今日(北京) =", today)
+          print("### 行情日期 =", trade, "| is_trading_day =", d.get('is_trading_day'))
+          print("### 上证指数返回 =", ix.get('000001'))
+          print("### 已抓指数数 =", len(ix))
+          os.makedirs('site', exist_ok=True)
+          name = trade or today
+          subprocess.run([sys.executable, 'generate_report.py',
+                          'data/market.json', 'site/%s.html' % name], check=True)
+          shutil.copy('site/%s.html' % name, 'site/latest.html')
+          subprocess.run([sys.executable, 'update_index.py', 'site'], check=True)
+          shutil.copy('data/market.json', 'site/market.json')
+          shutil.copy('fetch.log', 'site/fetch.log')
+          print("### 生成完成 ->", name)
+          PY
       - name: 发布到 gh-pages
         run: |
-          if [ ! -f site/index.html ]; then
-            echo "非交易日，无内容可发布"
-            exit 0
+          if [ ! -f site/latest.html ]; then
+            echo "没有生成任何页面，终止发布"
+            exit 1
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           cd site
-          git init -q && git checkout -q -B gh-pages
-          git add -A && git commit -q -m "review"
-          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
-          echo "已发布"
-      - name: 存档原始数据
+          git init -q
+          git checkout -q -B gh-pages
+          git add -A
+          git commit -q -m "review $(date -u +%FT%TZ)"
+          git push -q -f \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+            gh-pages
+          echo "已推送到 gh-pages"
+      - name: 存档
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: market-data
-          path: data/market.json
+          path: |
+            data/market.json
+            fetch.log
           retention-days: 90
