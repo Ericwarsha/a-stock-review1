@@ -74,9 +74,15 @@ def main():
     print("=== 4/4 推送 gh-pages ===", flush=True)
     token = os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPOSITORY")
-    if not token or not repo:
-        print("!! 本地运行：无 GITHUB_TOKEN，跳过推送（正常）")
-        return 0
+    if not (token and repo):
+        # 关键：绝不能静默跳过。GitHub Actions 不会自动注入这两个变量，
+        # 必须在 workflow 里用 env: 显式传入，否则任务会"成功"但什么都没推。
+        print("!! 缺少 GITHUB_TOKEN / GITHUB_REPOSITORY 环境变量，无法推送 gh-pages")
+        print("!! 请在工作流的该步骤加上：")
+        print("!!   env:")
+        print("!!     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}")
+        print("!!     GITHUB_REPOSITORY: ${{ github.repository }}")
+        return 1
     sh(["git", "config", "user.name", "github-actions[bot]"], cwd="site")
     sh(["git", "config", "user.email",
         "41898282+github-actions[bot]@users.noreply.github.com"], cwd="site")
