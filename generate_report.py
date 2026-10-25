@@ -592,6 +592,24 @@ def sec5(d):
              risk=risk)
 
 
+def _trig_tag(r):
+    """预警状态标签：收盘触发 / 盘中击穿 / 未触发。"""
+    if not r:
+        return '<span class="tag n">未触发</span>'
+    ih = r.get("intraday_hits") or []
+    if r.get("trigger") is not None:
+        out = '<span class="tag g">已触发 %s</span>' % ("%.3f" % r["trigger"])
+        extra = [x for x in ih if x != r["trigger"]]
+        if extra:
+            out += ('<span class="tag y">+盘中 %s</span>'
+                    % " / ".join("%.3f" % x for x in extra))
+        return out
+    if ih:
+        return ('<span class="tag y">盘中击穿 %s</span>'
+                % " / ".join("%.3f" % x for x in ih))
+    return '<span class="tag n">未触发</span>'
+
+
 def sec6(d):
     pf = d["portfolio"]
     trig = {r["code"]: r for r in (d.get("triggers") or [])}
@@ -611,15 +629,13 @@ def sec6(d):
                            else '<span class="na">' + NA + '</span>',
                            mv=("%.0f" % v["mv"]) if v.get("mv")
                            else '<span class="na">' + NA + '</span>',
-                           st=(('<span class="tag y">已触发 %s</span>'
-                                % ("%.3f" % trig[c]["trigger"]))
-                               if (c in trig and trig[c].get("trigger") is not None)
-                               else '<span class="tag n">未触发</span>'))
+                           st=_trig_tag(trig.get(c)))
         det += ("<div class='box'><b>{n} {c}</b>　收盘 {px}　涨跌 {p}　"
-                "浮盈亏 {pn}<br>　<span class='na'>{t}</span><br>"
+                "浮盈亏 {pn}　盘中最低 {lo}<br>　<span class='na'>{t}</span><br>"
                 "　<span class='na'>{note}</span></div>"
                 ).format(n=v["name"], c=c, px=price(v["close"]), p=pct(v["pct"]),
                          pn=("%+.2f%%" % v["pnl_pct"]) if v["pnl_pct"] is not None else NA,
+                         lo=price(v.get("low"), 3) if v.get("low") is not None else NA,
                          t=(trig[c]["note"] if c in trig else NA),
                          note=DISCIPLINE.get(c, ""))
     yz_w = (pf.get("601106", {}).get("mv") or 0) / tot * 100 if tot else 0
@@ -684,35 +700,66 @@ def sec7(d):
 def sec8(d):
     ev = "".join("<tr><td>{a}</td><td>{b}</td><td>{c}</td></tr>"
                  .format(a=x[0], b=x[1], c="★" * x[2]) for x in config.EVENTS)
+    rstat = []
+    for r in d["triggers"]:
+        ih = r.get("intraday_hits") or []
+        if r.get("trigger"):
+            st = "<span class='tag g'>已触发 %s</span>" % ("%.3f" % r["trigger"])
+            extra = [x for x in ih if x != r["trigger"]]
+            if extra:
+                st += ("<span class='tag y'>+盘中 %s</span>"
+                       % " / ".join("%.3f" % x for x in extra))
+        elif ih:
+            st = ("<span class='tag y'>盘中击穿 %s</span>"
+                  % " / ".join("%.3f" % x for x in ih))
+        else:
+            st = "<span class='tag n'>未触发</span>"
+        rstat.append((r, st))
     tr = "".join(
-        "<tr><td>{n}</td><td>{c}</td><td>{l}</td><td>{s}</td><td>{t}</td></tr>".format(
+        "<tr><td>{n}</td><td>{c}</td><td>{lo}</td><td>{l}</td><td>{s}</td><td>{t}</td></tr>".format(
             n=r["name"], c=price(r["close"], 3) if r.get("close") is not None else NA,
+            lo=(price(r["low"], 3) + ("<br><span class='na'>%+.2f%%</span>"
+                                     % r["low_pct"]))
+                if r.get("low") is not None else NA,
             l=" / ".join(str(x) for x in r["ladder"]) if r.get("ladder") else NA,
-            s=("<span class='tag g'>已触发 %s</span>"
-               % ("%.3f" % r["trigger"]) if r.get("trigger")
-               else "<span class='tag n'>未触发</span>"),
+            s=st,
             t=r.get("note") or NA)
-        for r in d["triggers"])
+        for r, st in rstat)
     hit, tot = d["triggered_count"], d["trigger_total"]
     fired = [r for r in d["triggers"] if r.get("trigger")]
+    intr = [r for r in d["triggers"]
+            if r.get("intraday_hits") and not r.get("trigger")]
+    extra = ""
+    if intr:
+        extra = ("<br><b>另有 {} 项在盘中已被击穿、收盘又拉回</b>："
+                 "同花顺预警盘中即会响，按预警纪律这些档位应已执行；"
+                 "若当时未接住，今日收盘价已回到档位上方，明日再跌回才重新触发。"
+                 "涉及：{}。".format(
+                     len(intr),
+                     "、".join("%s（盘中最低 %.3f，击穿 %s）"
+                               % (r["name"], r["low"],
+                                  "/".join("%.3f" % x for x in r["intraday_hits"]))
+                               for r in intr)))
     if hit:
         concl = ("<div class='box warn'><b>今日执行结论</b>：触发 <b>{hit} / {tot}</b> 项，"
                  "<b>需要执行</b>。涉及：{names}。严格按下行阶梯的档位下单，"
-                 "档位已跌穿即执行，不追加、不上移档位。</div>"
-                 .format(hit=hit, tot=tot,
+                 "档位已跌穿即执行，不追加、不上移档位。{extra}</div>"
+                 .format(hit=hit, tot=tot, extra=extra,
                          names="、".join("%s（%.3f）" % (r["name"], r["trigger"])
                                         for r in fired)))
     else:
         concl = ("<div class='box good'><b>今日执行结论</b>：触发 <b>{hit} / {tot}</b> 项，"
-                 "<b>无需任何交易动作</b>。按 1 年期纪律「不触发不动作」执行，继续等待。"
-                 "</div>".format(hit=hit, tot=tot))
+                 "<b>无需任何交易动作</b>。按 1 年期纪律「不触发不动作」执行，继续等待。{extra}"
+                 "</div>".format(hit=hit, tot=tot, extra=extra))
     tpl = """
 <section id="s8"><h2>八、策略调整建议</h2>
 {concl}
 <h3 class="sub">触发监控面板（下行触发：价格从上方跌破才触发）</h3>
-<table><tr><th>标的</th><th>现价</th><th>加仓档位</th><th>状态</th><th>判定说明</th></tr>{tr}</table>
-<div class="box warn"><b>档位方向说明</b>：加仓触发一律为<b>下行触发</b>——
-现价<b>从上方跌破</b>某档位才触发。「未触发」时右侧给出的是
+<table><tr><th>标的</th><th>收盘价</th><th>盘中最低</th><th>加仓档位</th><th>状态</th><th>判定说明</th></tr>{tr}</table>
+<div class="box warn"><b>两套口径必须都看</b>：加仓触发是<b>下行触发</b>，现价<b>从上方跌破</b>某档位才触发。
+同花顺预警为<b>盘中实时触发</b>，因此「盘中最低」列才是预警实际会响的那一刻；
+「收盘价」列只是当日结束时的状态。V 型反转日（如早盘深跌、午后拉回）两者会明显背离，
+<b>收盘口径会漏判</b>，以盘中最低列为准。收盘未触发时，判定说明给出的是
 「还需下跌多少元」，不是价格上涨空间。</div>
 <h3 class="sub">1 年期执行计划 v3.0 时间窗口</h3>
 <table><tr><th>日期</th><th>事件</th><th>重要性</th></tr>{ev}</table>
@@ -797,6 +844,7 @@ def render(d):
     ac = amt_chg(d)
     b = breadth_state(d)
     hit, tot = d["triggered_count"], d["trigger_total"]
+    ihit = d.get("intraday_triggered_count") or 0
     dt = d["trade_date"] or NA
     wd = "一二三四五六日"[datetime.fromisoformat(dt).weekday() % 7] \
         if dt != NA else ""
@@ -824,8 +872,9 @@ def render(d):
          if ac is not None else '<span class="na">较前日：' + NA + '</span>'),
         ("s2", "涨跌家数", bd_v, bd_d),
         ("s8", "加仓触发", "%d / %d" % (hit, tot),
-         '<span class="down">无需操作</span>' if hit == 0
-         else '<span class="up">需执行</span>'),
+         ('<span class="up">盘中另触及 %d 项</span>' % ihit) if ihit > hit
+         else ('<span class="down">无需操作</span>' if hit == 0
+               else '<span class="up">需执行</span>')),
     ]
     ch = "".join('<a class="card" href="#{i}"><div class="k">{k}</div>'
                  '<div class="v">{v}</div><div class="d">{d}</div></a>'
@@ -842,7 +891,8 @@ def render(d):
 <div class="cards">{ch}</div>
 <div class="trigger {ok}"><h3>{head}</h3>
 <div class="cnt">今日触发 {hit} / {tot}</div>
-<p>{msg}</p></div>
+<p>{msg}</p>
+<p>{msg2}</p></div>
 {s1}{s2}{s3}{s4}{s5}{s6}{s7}{s8}{s9}{s10}
 <div class="foot">本报告由脚本基于公开行情接口自动生成，<b>不构成投资建议</b>。
 标注「数据暂未获取」的字段表示该接口未提供，<b>未做任何推测、插值或替代</b>。
@@ -858,12 +908,19 @@ document.querySelectorAll('nav a').forEach(function(a){
 </script>
 </body></html>"""
     return F(tpl, dt=dt, css=CSS, nav=nav, wd=wd, gen=gen, ch=ch, src_txt=src_txt,
-             ok=("ok" if hit > 0 else ""),
+             ok=("ok" if (hit > 0 or ihit > 0) else ""),
              head=("✅ 有触发项，请按第八章执行" if hit
-                   else "⚠️ 全部未触发 —— 按纪律不动作"),
+                   else ("⚠️ 收盘未触发，但有盘中击穿" if ihit
+                         else "⚠️ 全部未触发 —— 按纪律不动作")),
              hit=hit, tot=tot,
              msg=("有加仓或做 T 档位被跌破，请查阅第八章操作清单。" if hit
                   else "全部 {} 个监控标的均未跌破预警价，今日无任何交易动作。".format(tot)),
+             msg2=("⚠️ 另有 <b>{}</b> 项在盘中已被击穿、收盘又被拉回 —— "
+                   "同花顺预警是盘中实时触发的，这类档位在收盘口径下会被漏判，"
+                   "请以第八章「盘中最低」列为准。".format(ihit - hit)
+                   if ihit > hit else
+                   ("盘中击穿 {} 项，与收盘口径一致。".format(ihit) if ihit
+                    else "")),
              s1=sec1(d), s2=sec2(d), s3=sec3(d), s4=sec4(d), s5=sec5(d),
              s6=sec6(d), s7=sec7(d), s8=sec8(d), s9=sec9(), s10=sec10(d))
 

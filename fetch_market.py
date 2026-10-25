@@ -108,7 +108,9 @@ def _tx(secids, retries=4):
                     amt = float(p[35].split("/")[2]) if "/" in p[35] else None
                     out[code] = {"name": p[1].strip(), "close": float(p[3]),
                                  "pct": float(p[32]), "chg": float(p[31]),
-                                 "amount": amt, "time": p[30]}
+                                 "amount": amt, "time": p[30],
+                                 "high": float(p[33]), "low": float(p[34]),
+                                 "prev": float(p[4]), "open": float(p[5])}
                 except (ValueError, IndexError):
                     continue
             if out:
@@ -180,19 +182,34 @@ def trading_day():
 
 
 # ---------------------------------------------------------------- 指数
+def _ohlc(close, high, low):
+    """最高/最低必须满足 high >= close >= low，否则视为无效（宁缺勿错）。"""
+    if close is None:
+        return None, None
+    if high is not None and low is not None:
+        if high >= close >= low:
+            return high, low
+        return None, None
+    return None, None
+
+
 def fetch_indexes():
     ids = [x[0] for x in config.INDEXES]
     url = ("https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=%s"
-           "&fields=f2,f3,f4,f5,f6,f12,f14,f104,f105,f106" % ",".join(ids))
+           "&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18,f104,f105,f106"
+           % ",".join(ids))
     out = {}
     for d in _diff(_get(url)):
         code, name = d.get("f12"), d.get("f14")
+        hi, lo = _ohlc(_num(d.get("f2")), _num(d.get("f15")), _num(d.get("f16")))
         out[code] = {
             "name": name,
             "close": _num(d.get("f2")),
             "pct": _num(d.get("f3")),
             "chg": _num(d.get("f4")),
             "amount": _num(d.get("f6")),   # 成交额(元)
+            "high": hi, "low": lo,
+            "prev": _num(d.get("f18")),
             "up": d.get("f104"),
             "down": d.get("f105"),
             "flat": d.get("f106"),
@@ -205,6 +222,8 @@ def fetch_indexes():
             out[code] = {"name": row["name"], "close": row["close"],
                          "pct": row["pct"], "chg": row["chg"],
                          "amount": row["amount"],
+                         "high": row["high"], "low": row["low"],
+                         "prev": row["prev"],
                          "up": None, "down": None, "flat": None}
     return out
 
@@ -214,14 +233,16 @@ def fetch_portfolio():
     ids = [config.secid(c) for c, *_ in config.PORTFOLIO]
     ids += [config.secid(c) for c, _ in config.WATCH_ETFS]
     url = ("https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=%s"
-           "&fields=f2,f3,f4,f5,f6,f12,f14" % ",".join(ids))
+           "&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18" % ",".join(ids))
     raw = {}
     for d in _diff(_get(url)):
+        hi, lo = _ohlc(_num(d.get("f2")), _num(d.get("f15")), _num(d.get("f16")))
         raw[d.get("f12")] = {
             "close": _num(d.get("f2")),
             "pct": _num(d.get("f3")),
             "chg": _num(d.get("f4")),
             "amount": _num(d.get("f6")),
+            "high": hi, "low": lo, "prev": _num(d.get("f18")),
         }
     # 东财缺位的用腾讯补齐，持仓价格是报告核心，绝不能留空
     miss = [s for s in ids if s.split(".")[1] not in raw]
@@ -229,7 +250,9 @@ def fetch_portfolio():
         print("  [补源] 持仓缺 %d 个，走腾讯" % len(miss))
         for code, row in _tx(miss).items():
             raw[code] = {"close": row["close"], "pct": row["pct"],
-                         "chg": row["chg"], "amount": row["amount"]}
+                         "chg": row["chg"], "amount": row["amount"],
+                         "high": row["high"], "low": row["low"],
+                         "prev": row["prev"]}
     out = {}
     for code, name, cost, shares, kind in config.PORTFOLIO:
         q = raw.get(code, {})
@@ -240,13 +263,16 @@ def fetch_portfolio():
         out[code] = {"name": name, "cost": cost, "shares": shares,
                      "kind": kind, "close": px, "pct": q.get("pct"),
                      "chg": q.get("chg"), "amount": q.get("amount"),
+                     "high": q.get("high"), "low": q.get("low"),
+                     "prev": q.get("prev"),
                      "pnl_pct": pnl,
                      "mv": round(px * shares, 2) if (px and shares) else None}
     watch = {}
     for code, name in config.WATCH_ETFS:
         q = raw.get(code, {})
         watch[code] = {"name": name, "close": q.get("close"),
-                       "pct": q.get("pct")}
+                       "pct": q.get("pct"),
+                       "high": q.get("high"), "low": q.get("low")}
     return out, watch
 
 
@@ -264,6 +290,34 @@ def fetch_fund_flow():
                          "net_yi": round(v / 1e8, 2), "pct": _num(d.get("f3"))})
         return rows
     return {"in_top": top(1, 5), "out_top": top(0, 5)}
+
+
+def fetch_prev_amount(trade_date):
+    """上一交易日两市成交额（分指数，单位元）。
+
+    「放量反弹」还是「缩量反弹」的分水岭就在这个数上 —— 报告里必须有它，
+    不能留「较前日：数据暂未获取」。日K线末根=当日，前一根=上一交易日。
+    """
+    out = {}
+    for secid, code in (("1.000001", "000001"), ("0.399001", "399001")):
+        js = _get("https://push2his.eastmoney.com/api/qt/stock/kline/get"
+                  "?secid=%s&klt=101&fqt=0&end=20500101&lmt=3"
+                  "&fields1=f1,f2,f3&fields2=f51,f53,f57" % secid)
+        if not (js and isinstance(js.get("data"), dict)):
+            continue
+        ks = js["data"].get("klines") or []
+        if len(ks) < 2:
+            continue
+        last = ks[-1].split(",")
+        prev = ks[-2].split(",")
+        # 只有当末根K线确实就是当日时，前一根才是「上一交易日」
+        if trade_date and last[0].replace("-", "") != trade_date.replace("-", ""):
+            continue
+        try:
+            out[code] = float(prev[2])
+        except (ValueError, IndexError):
+            continue
+    return out
 
 
 def fetch_limit_pool(trade_date):
@@ -319,28 +373,63 @@ def _nearest(ladder, px):
     return lv, px - lv
 
 
+def _low_pct(v):
+    """盘中最低价相对昨收的涨跌幅（%）。"""
+    lo, prev = v.get("low"), v.get("prev")
+    if lo is None or not prev:
+        return None
+    return round((lo - prev) / prev * 100, 2)
+
+
+def _intraday_hits(ladder, low):
+    """盘中最低价击穿的档位（从高到低）。同花顺预警是盘中实时触发的，
+    只用收盘价判定会漏掉 V 型反转日里盘中已跌穿、收盘又拉回来的档位。"""
+    if low is None:
+        return []
+    return [lv for lv in sorted(ladder, reverse=True) if low <= lv]
+
+
 def evaluate_triggers(portfolio):
-    """下行触发判定：价格 <= 档位 且 当日跌幅 <= 0。"""
+    """下行触发判定，两套口径同时输出：
+
+    - 收盘口径(trigger)：收盘价是否已跌破档位
+    - 盘中口径(intraday_hits)：盘中最低价是否击穿过档位（= 同花顺预警口径）
+    """
     rows = []
     for code, ladder in config.ADD_LADDER.items():
-        px = (portfolio.get(code) or {}).get("close")
-        name = (portfolio.get(code) or {}).get("name", code)
+        v = portfolio.get(code) or {}
+        px, name = v.get("close"), v.get("name", code)
         if px is None:
             rows.append({"code": code, "name": name, "trigger": None,
+                         "intraday_hits": [],
                          "note": "行情未获取，无法判定"})
             continue
         hit = next((lv for lv in sorted(ladder, reverse=True) if px <= lv), None)
+        ih = _intraday_hits(ladder, v.get("low"))
         if hit:
             note = "已触发 %.3f" % hit
         else:
             lv, gap = _nearest(ladder, px)
             note = ("未触发，现价高于最近档位 %.3f，需再跌 %.3f 才触发" % (lv, gap)
                     if lv is not None else "未触发，现价已高于全部档位")
+        if ih and not hit:
+            note += "；但盘中最低 %.3f 已击穿 %s" % (
+                v["low"], " / ".join("%.3f" % x for x in ih))
+        elif ih and hit:
+            extra = [x for x in ih if x != hit]
+            if extra:
+                note += "；盘中最低 %.3f 还击穿了 %s" % (
+                    v["low"], " / ".join("%.3f" % x for x in extra))
+            else:
+                note += "（盘中最低 %.3f）" % v["low"]
         rows.append({"code": code, "name": name, "ladder": ladder,
-                     "close": px, "trigger": hit, "note": note})
+                     "close": px, "low": v.get("low"),
+                     "low_pct": _low_pct(v),
+                     "trigger": hit, "intraday_hits": ih, "note": note})
     # 中国一重做T买点：需同时满足 价格<=2.81 且 跌幅>=3%
     yz = portfolio.get("601106") or {}
     px, pct = yz.get("close"), yz.get("pct")
+    lo, lo_pct = yz.get("low"), _low_pct(yz)
     if px is None:
         t_ok, t_note = None, "行情未获取"
     else:
@@ -352,14 +441,25 @@ def evaluate_triggers(portfolio):
                   % (px, config.T_BUY, pct_s) if t_ok else
                   "未触发，价格 %.2f（需 ≤ %.2f，尚差 %.2f），跌幅 %s（需 ≤ -3%%）"
                   % (px, config.T_BUY, px - config.T_BUY, pct_s))
+    # 盘中口径：最低价与最低价对应的跌幅同时满足才算盘中触发
+    t_intra = bool(lo is not None and lo <= config.T_BUY
+                    and lo_pct is not None and lo_pct <= -3.0)
+    if t_intra and not t_ok:
+        t_note += "；但盘中最低 %.2f（%.2f%%）已同时满足做T条件" % (lo, lo_pct)
+    elif t_intra:
+        t_note += "（盘中最低 %.2f，%.2f%%）" % (lo, lo_pct)
     rows.append({"code": "601106", "name": "中国一重（做T买点）",
-                 "ladder": [config.T_BUY], "close": px,
-                 "trigger": config.T_BUY if t_ok else None, "note": t_note})
+                 "ladder": [config.T_BUY], "close": px, "low": lo,
+                 "low_pct": lo_pct,
+                 "trigger": config.T_BUY if t_ok else None,
+                 "intraday_hits": [config.T_BUY] if t_intra else [],
+                 "note": t_note})
     for code, ladder in config.WATCH_LADDER.items():
-        px = (portfolio.get(code) or {}).get("close")
-        name = (portfolio.get(code) or {}).get("name", code)
+        v = portfolio.get(code) or {}
+        px, name = v.get("close"), v.get("name", code)
         hit = next((lv for lv in sorted(ladder, reverse=True)
                     if px is not None and px <= lv), None)
+        ih = _intraday_hits(ladder, v.get("low"))
         if px is None:
             note = "行情未获取"
         elif hit:
@@ -368,8 +468,20 @@ def evaluate_triggers(portfolio):
             lv, gap = _nearest(ladder, px)
             note = ("未触发，现价高于最近档位 %.3f，需再跌 %.3f 才触发" % (lv, gap)
                     if lv is not None else "未触发，现价已高于全部档位")
+        if ih and not hit:
+            note += "；但盘中最低 %.3f 已击穿 %s" % (
+                v["low"], " / ".join("%.3f" % x for x in ih))
+        elif ih and hit:
+            extra = [x for x in ih if x != hit]
+            if extra:
+                note += "；盘中最低 %.3f 还击穿了 %s" % (
+                    v["low"], " / ".join("%.3f" % x for x in extra))
+            else:
+                note += "（盘中最低 %.3f）" % v["low"]
         rows.append({"code": code, "name": name, "ladder": ladder,
-                     "close": px, "trigger": hit, "note": note})
+                     "close": px, "low": v.get("low"),
+                     "low_pct": _low_pct(v),
+                     "trigger": hit, "intraday_hits": ih, "note": note})
     return rows
 
 
@@ -387,6 +499,13 @@ def main():
 
     print("[2/6] 指数 ...")
     idx = fetch_indexes()
+    pa = fetch_prev_amount(trade_date)
+    for code, amt in pa.items():
+        if code in idx:
+            idx[code]["prev_amount"] = amt
+    if pa:
+        print("      上一交易日成交额已回填：%s"
+              % ", ".join("%s=%.0f亿" % (k, v / 1e8) for k, v in pa.items()))
     print("[3/6] 持仓与监控ETF ...")
     pf, watch = fetch_portfolio()
     print("[4/6] 资金面与涨跌停 ...")
@@ -398,6 +517,7 @@ def main():
     trig = evaluate_triggers(pf)
 
     up = sum(1 for r in trig if r.get("trigger"))
+    iup = sum(1 for r in trig if r.get("intraday_hits"))
     data = {
         "trade_date": trade_date,
         "quote_time": quote_time,
@@ -406,6 +526,7 @@ def main():
         "indexes": idx, "portfolio": pf, "watch_etfs": watch,
         "fund_flow": flow, "limit_pool": limits, "global": glb,
         "triggers": trig, "triggered_count": up, "trigger_total": len(trig),
+        "intraday_triggered_count": iup,
     }
     path = os.path.join(outdir, "market.json")
     # 东财对本机是间歇性掐连接，一次失败的全量运行会把上一轮已经抓到的
