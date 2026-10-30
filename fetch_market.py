@@ -186,14 +186,33 @@ def trading_day():
 
 # ---------------------------------------------------------------- 指数
 def _ohlc(close, high, low):
-    """最高/最低必须满足 high >= close >= low，否则视为无效（宁缺勿错）。"""
+    """最高/最低必须满足 high >= close >= low，且都是正数，否则视为无效（宁缺勿错）。
+
+    0 尤其要当缺失处理：开盘集合竞价前行情源给的是 最高=最低=0，
+    直接用会让"盘中最低 0.00"击穿所有下行档位，造成假盘中触发。
+    """
     if close is None:
         return None, None
-    if high is not None and low is not None:
-        if high >= close >= low:
-            return high, low
+    h, l = _px(high), _px(low)
+    if h is None or l is None:
         return None, None
+    if h >= close >= l:
+        return h, l
     return None, None
+
+
+def _pct_of(close, pct, prev):
+    """涨跌幅：盘前行情源给的 0 是"今日还没开盘"，不是真涨跌幅。
+
+    盘前行情源给的是 上一交易日收盘(现价) + 上上交易日收盘(昨收)，
+    所以 (现价-昨收)/昨收 正好还原出上一交易日的真实涨跌幅；
+    收盘后平盘时这个式子同样得 0，不会误伤。
+    """
+    if pct not in (None, 0, 0.0):
+        return pct
+    if close and prev:
+        return round((close - prev) / prev * 100, 2)
+    return pct
 
 
 def fetch_indexes():
@@ -204,29 +223,36 @@ def fetch_indexes():
     out = {}
     for d in _diff(_get(url)):
         code, name = d.get("f12"), d.get("f14")
-        hi, lo = _ohlc(_num(d.get("f2")), _num(d.get("f15")), _num(d.get("f16")))
+        close, prev = _px(d.get("f2")), _num(d.get("f18"))
+        hi, lo = _ohlc(close, _num(d.get("f15")), _num(d.get("f16")))
         out[code] = {
             "name": name,
-            "close": _num(d.get("f2")),
-            "pct": _num(d.get("f3")),
+            "close": close,
+            "pct": _pct_of(close, _num(d.get("f3")), prev),
             "chg": _num(d.get("f4")),
             "amount": _num(d.get("f6")),   # 成交额(元)
             "high": hi, "low": lo,
-            "prev": _num(d.get("f18")),
+            "prev": prev,
             "up": d.get("f104"),
             "down": d.get("f105"),
             "flat": d.get("f106"),
         }
     # 东财缺位的用腾讯补（涨跌家数腾讯不提供，保留 None）
-    miss = [s for s in ids if s.split(".")[1] not in out]
+    # 注意：盘前东财可能返回 f2=0（还没有价格），这种情况也要算"缺位"，
+    # 否则会拿 0 当收盘价，全局涨跌幅也会跟着失真。
+    miss = [s for s in ids
+            if not ((out.get(s.split(".")[1]) or {}).get("close"))]
     if miss:
         print("  [补源] 指数缺 %d 个，走腾讯" % len(miss))
         for code, row in _tx(miss).items():
-            out[code] = {"name": row["name"], "close": row["close"],
-                         "pct": row["pct"], "chg": row["chg"],
+            close, prev = _px(row["close"]), row["prev"]
+            hi, lo = _ohlc(close, row["high"], row["low"])
+            out[code] = {"name": row["name"], "close": close,
+                         "pct": _pct_of(close, row["pct"], prev),
+                         "chg": row["chg"],
                          "amount": row["amount"],
-                         "high": row["high"], "low": row["low"],
-                         "prev": row["prev"],
+                         "high": hi, "low": lo,
+                         "prev": prev,
                          "up": None, "down": None, "flat": None}
     return out
 
@@ -239,23 +265,29 @@ def fetch_portfolio():
            "&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18" % ",".join(ids))
     raw = {}
     for d in _diff(_get(url)):
-        hi, lo = _ohlc(_num(d.get("f2")), _num(d.get("f15")), _num(d.get("f16")))
+        close, prev = _px(d.get("f2")), _num(d.get("f18"))
+        hi, lo = _ohlc(close, _num(d.get("f15")), _num(d.get("f16")))
         raw[d.get("f12")] = {
-            "close": _num(d.get("f2")),
-            "pct": _num(d.get("f3")),
+            "close": close,
+            "pct": _pct_of(close, _num(d.get("f3")), prev),
             "chg": _num(d.get("f4")),
             "amount": _num(d.get("f6")),
-            "high": hi, "low": lo, "prev": _num(d.get("f18")),
+            "high": hi, "low": lo, "prev": prev,
         }
-    # 东财缺位的用腾讯补齐，持仓价格是报告核心，绝不能留空
-    miss = [s for s in ids if s.split(".")[1] not in raw]
+    # 东财缺位的用腾讯补齐，持仓价格是报告核心，绝不能留空。
+    # 盘前东财返回 f2=0 也算缺位 —— 0 会造成假触发，必须让腾讯来补真价。
+    miss = [s for s in ids
+            if not ((raw.get(s.split(".")[1]) or {}).get("close"))]
     if miss:
         print("  [补源] 持仓缺 %d 个，走腾讯" % len(miss))
         for code, row in _tx(miss).items():
-            raw[code] = {"close": row["close"], "pct": row["pct"],
+            close, prev = _px(row["close"]), row["prev"]
+            hi, lo = _ohlc(close, row["high"], row["low"])
+            raw[code] = {"close": close,
+                         "pct": _pct_of(close, row["pct"], prev),
                          "chg": row["chg"], "amount": row["amount"],
-                         "high": row["high"], "low": row["low"],
-                         "prev": row["prev"]}
+                         "high": hi, "low": lo,
+                         "prev": prev}
     out = {}
     for code, name, cost, shares, kind in config.PORTFOLIO:
         q = raw.get(code, {})
@@ -298,7 +330,10 @@ def fetch_fund_flow():
     def rows(po, n):
         out = []
         for d in _diff(_get("%s&po=%d&pz=%d&pn=1" % (base, po, n))):
-            v = d.get("f62")
+            # f62 可能拿到 "-" —— 东财对无数据板块的占位符，必须先转数字再算。
+            # 2026-10-30 云端 runner 真实踩到：v 是 str，v / 1e8 直接 TypeError，
+            # 整轮抓取崩掉 → market.json 没产出 → 站点被推成错误页。
+            v = _num(d.get("f62"))
             if v is None:
                 continue
             out.append({"name": d.get("f14"), "code": d.get("f12"),
@@ -319,7 +354,7 @@ def fetch_fund_flow():
             break
         for d in diff:
             nm = d.get("f14")
-            v = d.get("f62")
+            v = _num(d.get("f62"))       # 同上："-" 占位符必须先转数字再算
             if not nm or v is None:
                 continue
             boards[nm] = {"name": nm, "code": d.get("f12"),
@@ -785,14 +820,20 @@ def fetch_proxy_etf():
            "&fields=f2,f3,f4,f5,f6,f12,f14,f18" % secid)
     for d in _diff(_get(url)):
         if d.get("f12") == code:
-            return {"name": d.get("f14"), "close": _num(d.get("f2")),
-                    "pct": _num(d.get("f3")), "chg": _num(d.get("f4")),
-                    "amount": _num(d.get("f6")), "prev": _num(d.get("f18")),
-                    "src": "东方财富"}
+            close, prev = _px(d.get("f2")), _num(d.get("f18"))
+            if close:
+                return {"name": d.get("f14"), "close": close,
+                        "pct": _pct_of(close, _num(d.get("f3")), prev),
+                        "chg": _num(d.get("f4")),
+                        "amount": _num(d.get("f6")), "prev": prev,
+                        "src": "东方财富"}
+            break        # 盘前 f2=0（还没有价格）→ 转腾讯补真价
     row = _tx([secid]).get(code)
     if row:
-        return {"name": row["name"], "close": row["close"], "pct": row["pct"],
-                "chg": row["chg"], "amount": row["amount"], "prev": row["prev"],
+        close, prev = _px(row["close"]), row["prev"]
+        return {"name": row["name"], "close": close,
+                "pct": _pct_of(close, row["pct"], prev),
+                "chg": row["chg"], "amount": row["amount"], "prev": prev,
                 "src": "腾讯财经"}
     return None
 
@@ -809,15 +850,20 @@ def fetch_broad_etfs():
            "&fields=f2,f3,f4,f5,f6,f12,f14,f18" % ",".join(ids))
     raw = {}
     for d in _diff(_get(url)):
-        raw[d.get("f12")] = {"name": d.get("f14"), "close": _num(d.get("f2")),
-                             "pct": _num(d.get("f3")), "amount": _num(d.get("f6")),
-                             "prev": _num(d.get("f18"))}
-    miss = [s for s in ids if s.split(".")[1] not in raw]
+        close, prev = _px(d.get("f2")), _num(d.get("f18"))
+        raw[d.get("f12")] = {"name": d.get("f14"), "close": close,
+                             "pct": _pct_of(close, _num(d.get("f3")), prev),
+                             "amount": _num(d.get("f6")),
+                             "prev": prev}
+    miss = [s for s in ids
+            if not ((raw.get(s.split(".")[1]) or {}).get("close"))]
     if miss:
         print("  [补源] 宽基ETF缺 %d 个，走腾讯" % len(miss))
         for code, row in _tx(miss).items():
-            raw[code] = {"name": row["name"], "close": row["close"],
-                         "pct": row["pct"], "amount": row["amount"],
+            raw[code] = {"name": row["name"], "close": _px(row["close"]),
+                         "pct": _pct_of(_px(row["close"]), row["pct"],
+                                        row["prev"]),
+                         "amount": row["amount"],
                          "prev": row["prev"]}
     out = {}
     for code, name in config.BROAD_ETFS:
@@ -901,6 +947,21 @@ def _num(v):
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def _px(v):
+    """价格必须是正数，否则按缺失处理。
+
+    盘前（开盘集合竞价前）东财对个股/ETF 返回 f2=0 —— 含义是"还没有价格"，
+    不是"价格是 0"。直接当 0 用会同时毁掉两件事：
+      · 触发判定：0 <= 任何下行档位 → 全部假触发（实测南山铝业 4.15 档假触发）
+      · 浮盈亏：按 0 算成 -100%
+    所以 0 必须当缺失，交给腾讯补源；补源也没有就如实报"行情未获取"。
+    """
+    n = _num(v)
+    if n is None or n <= 0:
+        return None
+    return n
 
 
 # ---------------------------------------------------------------- 触发判定
@@ -1031,6 +1092,42 @@ def evaluate_triggers(portfolio):
 
 
 # ---------------------------------------------------------------- 主流程
+def _safe(label, fn, default, *args, **kw):
+    """辅助数据块的降级护栏。
+
+    辅助块（资金流/涨跌停/全球/宽基/代理/消息/板块）抓取失败时，
+    只让这一块变成「数据暂未获取」，不能拖垮整轮 —— 核心块（指数/持仓）
+    失败要抛错，因为没有它们报告本身就没意义；但辅助块缺失只是少一段结论。
+
+    2026-10-30 云端 runner 实测教训：一次 f62 的类型问题就让整轮抓取崩掉，
+    market.json 没产出，publish.py 只能把错误页推上 gh-pages，
+    站点反而比跑崩之前更糟。
+    """
+    try:
+        return fn(*args, **kw)
+    except Exception as e:
+        print("  [降级] %s 抓取失败 -> 该块置空：%s: %s"
+              % (label, type(e).__name__, e))
+        return default
+
+
+def _trade_state(trade_date, today):
+    """交易日状态措辞。
+
+    trade_date < today 有两种完全不同的含义，不能都叫「非交易日」：
+      · 盘前/未收盘 —— 今天明明是交易日，只是数据还没产生（手动在早上触发就是这种）
+      · 真休市 —— 节假日/周末
+    """
+    if trade_date == today:
+        return "交易日"
+    now = datetime.now(CST)
+    if trade_date and now.weekday() < 5 and now.hour < 15:
+        # 工作日但 15:00 收盘前，行情源给的还是上一个交易日的收盘数据
+        # （盘前东财个股甚至给 f2=0）。这是"今天还没出数据"，不是休市。
+        return ("今日数据未出（取最近交易日 %s 的收盘数据）" % trade_date)
+    return "非交易日(休市)"
+
+
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else "data"
     os.makedirs(outdir, exist_ok=True)
@@ -1039,11 +1136,9 @@ def main():
     trade_date, quote_time = trading_day()
     today = datetime.now(CST).date().isoformat()
     print("      行情日期=%s  当前=%s  %s"
-          % (trade_date, today,
-             "交易日" if trade_date == today else "非交易日(将生成休市说明)"))
-
+          % (trade_date, today, _trade_state(trade_date, today)))
     print("[2/8] 指数 ...")
-    idx = fetch_indexes()
+    idx = _safe("指数", fetch_indexes, {})
     pa = fetch_prev_amount(trade_date)
     for code, amt in pa.items():
         if code in idx:
@@ -1052,26 +1147,28 @@ def main():
         print("      上一交易日成交额已回填：%s"
               % ", ".join("%s=%.0f亿" % (k, v / 1e8) for k, v in pa.items()))
     print("[3/8] 持仓与监控ETF ...")
-    pf, watch = fetch_portfolio()
+    pf, watch = _safe("持仓与监控ETF", fetch_portfolio, ({}, {}))
     print("[4/8] 资金面与涨跌停 ...")
-    flow = fetch_fund_flow()
-    limits = fetch_limit_pool(trade_date)
+    flow = _safe("板块资金流", fetch_fund_flow, {})
+    limits = _safe("涨跌停家数", fetch_limit_pool,
+                   {"zt": None, "dt": None}, trade_date)
     print("      板块资金流字典：%d 个板块" % len(flow.get("boards") or {}))
-    sectors = fetch_sina_sectors()
+    sectors = _safe("新浪板块涨跌幅", fetch_sina_sectors, {})
     print("[5/8] 全球宏观（东财+新浪+腾讯+美财政部）...")
-    glb = fetch_global()
+    glb = _safe("全球宏观", fetch_global, {})
     print("      已获取：%s"
           % ", ".join(sorted(k for k, v in glb.items() if v and v.get("close"))))
     print("[6/8] 宽基ETF（第三章 国家队/汇金观察）+ 第九章代理ETF ...")
-    broad = fetch_broad_etfs()
+    broad = _safe("宽基ETF", fetch_broad_etfs, {})
     print("      宽基ETF到位：%d / %d"
           % (len([v for v in broad.values() if v.get("close")]), len(broad)))
-    proxy = fetch_proxy_etf()
+    proxy = _safe("第九章代理ETF", fetch_proxy_etf, None)
     print("      第九章代理ETF %s：%s"
           % (config.AEROSPACE_FUND.get("proxy_code"),
              ("%s %s" % (proxy.get("close"), proxy.get("pct"))) if proxy else "未获取"))
     print("[7/8] 消息面（7x24快讯 + 持仓公告）...")
-    news = fetch_news(trade_date)
+    news = _safe("消息面", fetch_news,
+                 {"kuaixun": [], "ann": [], "kx_date": None}, trade_date)
     print("      快讯 %d 条（日期 %s）｜ 持仓公告 %d 条"
           % (len(news["kuaixun"]), news.get("kx_date"), len(news["ann"])))
     print("      新浪板块涨跌幅：%d 个" % len(sectors))
@@ -1102,6 +1199,13 @@ def main():
     # 而日报错日期比缺几个字段严重得多。只有同一天内的重复运行才比完整度。
     score = len(idx) + len([v for v in pf.values() if v.get("close")]) \
         + (2 if trade_date else 0)
+    # 全部数据源都失败时，宁可让 publish.py 推一个说清原因的错误页，
+    # 也不要生成一份"看起来正常、实际全空"的报告 —— 后者更危险。
+    if not trade_date or score <= 0:
+        raise RuntimeError(
+            "交易日无法判定或全部行情源失败（指数 %d 个 / 持仓有效 %d 只），"
+            "拒绝生成空报告" % (len(idx),
+                                len([v for v in pf.values() if v.get("close")])))
     best, old = -1, None
     if os.path.exists(path):
         try:
