@@ -546,6 +546,13 @@ def sec2(d):
                     "两只当日分别下跌，与板块方向一致")
     if any(any(k in n for k in OUT_POS) for n in ins):
         hold.append("<b>通信 ETF / 云计算 ETF</b> 所在方向为资金净流入方向")
+    # 板块资金流是否有数据 —— 决定"没有明确同向对应"与"接口没返回数据"两种表述。
+    # ⚠️ 2026-10-30 云端踩过：这里原来写了个从未定义的 flow_ok，
+    #    本地因为 hold 非空（else 分支没被求值）一直没暴露，
+    #    云端板块资金流为空 → 走进 else 分支 → NameError → 报告生成失败、
+    #    publish.py 把错误页推上了 gh-pages（线上站点被顶掉）。
+    #    教训：任何"数据缺失"分支都必须能被本地测到，不能只测主路径。
+    flow_ok = bool(f.get("in_top") or f.get("out_top") or f.get("boards"))
     hold_txt = ("；".join(hold) + "。") if hold else \
         ("已获取的板块流向与持仓标的<b>无明确同向或反向对应</b>，本节不对持仓方向性下结论。"
          if flow_ok else

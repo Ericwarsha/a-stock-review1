@@ -9,9 +9,14 @@
 设计原则（踩过的坑总结）：
   1. 绝不静默跳过。GitHub Actions 不会自动注入 GITHUB_TOKEN / GITHUB_REPOSITORY，
      必须在 workflow 里用 env: 显式传入，否则任务会"全绿"但什么都没推。
-  2. 失败也要推。生成失败不是终点——把错误页推到 gh-pages，站点本身就是诊断出口，
-     这样不用登录 Actions 也能读到失败原因。
+  2. 失败也要推，但**不能顶掉上一次的报告**。2026-10-30 云端因 generate_report.py
+     里一个未定义变量（sec2 的 flow_ok）炸了，旧写法把错误页写成 site/latest.html
+     再 force push → 线上站点整站被错误页顶掉，昨天能看的报告也没了。
+     现在改成：先把上一次的 gh-pages 内容拉下来当基底，失败时把错误页写到
+     site/error.html，latest.html 保持上一次的好报告。
   3. 推送段独立于生成段。抓取/生成/索引任何一步炸掉，都不影响最后把 gh-pages 建出来。
+  4. 基底顺带让历史报告累积：update_index.py 一直支持"扫描 site/ 下所有
+     YYYY-MM-DD.html、保留最近 30 篇"，之前因为 site/ 每天被清空而用不上。
 
 环境变量（需在 workflow 中显式传入）：
   GITHUB_TOKEN      推送凭据
@@ -37,16 +42,21 @@ def sh(cmd, cwd=None, hide=None):
 
 
 def write_error_page(err, detail_lines):
-    """把失败原因写成一个页面。站点即诊断通道，外部无需登录即可读到原因。"""
+    """把失败原因写成一个页面。
+
+    ⚠️ 2026-10-30 起写到 site/error.html，**不再覆盖 site/latest.html**：
+    上一次的好报告要留在 latest.html，失败不能把站点顶掉。
+    """
     body = "".join("<li>%s</li>" % html_mod.escape(str(x)) for x in detail_lines)
-    with open("site/latest.html", "w", encoding="utf-8") as f:
+    with open("site/error.html", "w", encoding="utf-8") as f:
         f.write(
             "<!DOCTYPE html><html lang=zh-CN><meta charset=utf-8>"
             "<title>复盘生成失败</title>"
             "<body style='background:#0d1117;color:#c9d1d9;"
             "font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:32px'>"
             "<h2 style='color:#f85149;margin:0 0 18px'>复盘生成失败</h2>"
-            "<p style='color:#8b949e'>时间 %s ｜ 仓库 %s</p>"
+            "<p style='color:#8b949e'>时间 %s ｜ 仓库 %s ｜ "
+            "<a style='color:#58a6ff' href='latest.html'>← 回到上一份完好的报告</a></p>"
             "<h3 style='color:#58a6ff;font-size:15px'>现场信息</h3>"
             "<ul style='line-height:1.9'>%s</ul>"
             "<h3 style='color:#58a6ff;font-size:15px'>异常堆栈</h3>"
@@ -60,6 +70,46 @@ def write_error_page(err, detail_lines):
                os.environ.get("GITHUB_REPOSITORY", "?"), body,
                html_mod.escape(err))
         )
+
+
+def overlay_site(src_dir):
+    """把 src_dir 里的站点文件铺到 site/ 下（已存在的不覆盖）。"""
+    for name in os.listdir(src_dir):
+        if name.startswith("."):
+            continue
+        src = os.path.join(src_dir, name)
+        dst = os.path.join("site", name)
+        if os.path.isdir(src):
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        elif not os.path.exists(dst):
+            shutil.copy2(src, dst)
+
+
+def fetch_previous_site(token, repo):
+    """把上一次的 gh-pages 内容拉下来，作为本次 site/ 的基底。
+
+    目的：
+      ① 生成失败时不至于把上一次能看的报告整站顶掉（2026-10-30 真实发生过）
+      ② 顺带让历史报告累积 —— update_index.py 一直支持"保留最近 30 篇"
+    失败不致命：拿不到就按老路走（site/ 只有本轮内容）。
+    """
+    if not (token and repo):
+        return False
+    url = "https://x-access-token:%s@github.com/%s.git" % (token, repo)
+    tmp = "_prev_site"
+    shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        sh(["git", "clone", "-q", "--depth", "1", "--branch", "gh-pages",
+            url, tmp], hide=token)
+    except Exception as e:
+        print("!! 上一次站点内容拉取失败（不影响本次发布）：%s" % e, flush=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+        return False
+    try:
+        overlay_site(tmp)
+        return True
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def push_gh_pages(today):
@@ -105,6 +155,14 @@ def main():
     os.makedirs("site", exist_ok=True)
     gen_ok = True
     info = []
+
+    # 先把上一次的站点内容拉下来当基底：
+    #   · 生成失败时 latest.html 仍是上一次的好报告（不再整站被错误页顶掉）
+    #   · 历史报告自然累积，index.html 能列出多天
+    _tok = os.environ.get("GITHUB_TOKEN")
+    _repo = os.environ.get("GITHUB_REPOSITORY")
+    if _tok and _repo and fetch_previous_site(_tok, _repo):
+        print("### 已把上一次的站点内容作为基底（历史报告保留）", flush=True)
 
     try:
         print("=== 1/4 抓取行情 ===", flush=True)
@@ -161,6 +219,18 @@ def main():
             write_error_page(err, info or ["流水线在抓取/生成阶段中断"])
         except Exception as e2:
             print("!! 错误页写入也失败了：", e2, flush=True)
+        # 诊断数据也一并带上（错误页里链向它们）
+        for src, dst in (("data/market.json", "site/market.json"),
+                         ("fetch.log", "site/fetch.log")):
+            try:
+                if os.path.exists(src):
+                    shutil.copy(src, dst)
+            except Exception:
+                pass
+        try:
+            sh([sys.executable, "update_index.py", "site"])
+        except Exception as e:
+            print("!! 索引更新失败（不影响发布）：", e, flush=True)
 
     print("=== 4/4 推送 gh-pages ===", flush=True)
     try:
@@ -172,7 +242,8 @@ def main():
     if not pushed:
         return 1
     if not gen_ok:
-        print("!! 注意：本次报告生成失败，错误详情已推送到站点页面")
+        print("!! 注意：本次报告生成失败，错误详情已推送到站点 /error.html"
+              "（latest.html 保留上一次的好报告）")
         return 1
     return 0
 
