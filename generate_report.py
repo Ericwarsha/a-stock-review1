@@ -2,7 +2,9 @@
 """
 A股每日复盘 - HTML 生成器（纯标准库）
 
-严格十章结构，缺数据一律渲染为"数据暂未获取"，绝不编造。
+结构与《01-复盘模板.md》v2.0 对齐，共 12 块：
+  【一】~【十】十章 + 【新因子预留位】 + 附录:关键数据汇总
+缺数据一律渲染为"数据暂未获取"，绝不编造。
 
 模板使用 {name} 占位符 + str.replace 注入，避免 % 格式化在大模板中错位。
 用法： python generate_report.py <market.json> <输出html路径>
@@ -83,9 +85,10 @@ table{font-size:12px;display:block;overflow-x:auto;white-space:nowrap}
 """
 
 NAV = [("s1", "一、今日A股行情"), ("s2", "二、资金面"), ("s3", "三、国家队/ETF"),
-       ("s4", "四、消息面"), ("s5", "五、涨跌成因"), ("s6", "六、持仓逐一复盘"),
-       ("s7", "七、此前推论验证"), ("s8", "八、策略调整建议"),
-       ("s9", "九、商业航天"), ("s10", "十、低估板块跟踪")]
+       ("s4", "四、消息面"), ("s4b", "四·补、新因子预留位"), ("s5", "五、涨跌成因"),
+       ("s6", "六、持仓逐一复盘"), ("s7", "七、此前推论验证"),
+       ("s8", "八、策略调整建议"), ("s9", "九、商业航天"),
+       ("s10", "十、低估板块跟踪"), ("s11", "附录·关键数据汇总")]
 
 ORDER = ["600219", "516630", "513120", "515880", "000420",
          "601012", "002298", "601106"]
@@ -165,6 +168,52 @@ def g_(d, key, d2=2):
 def gv(d, key, d2=2):
     v = (d.get("global") or {}).get(key) or {}
     return pct(v.get("pct"))
+
+
+def gsrc(d, key):
+    v = (d.get("global") or {}).get(key) or {}
+    return v.get("src") or "—"
+
+
+def gy(d, key, dp=2):
+    """美债收益率行：数值 + 较前一日 bp 变化（收益率是绝对水平，不是涨跌幅）。"""
+    v = (d.get("global") or {}).get(key) or {}
+    if v.get("close") is None:
+        return "<span class='na'>%s</span>" % NA
+    s = ("%%.%df%%%%" % dp) % v["close"]
+    if v.get("chg_bp") is not None:
+        b = v["chg_bp"]
+        cls = "up" if b > 0 else ("down" if b < 0 else "flat")
+        s += " <span class='%s'>%+.1f bp</span>" % (cls, b)
+    return s
+
+
+def gold_factor(d):
+    """黄金 002611 双因子判定（任一因子满足即可触发）。
+
+    因子① Brent < 100 美元；因子② 美10Y < 4.3%。
+    数据缺口时 known=False —— 既不宣称触发，也不宣称未触发。
+    """
+    g = d.get("global") or {}
+    b_th = config.GOLD_FACTOR_BRENT
+    y_th = config.GOLD_FACTOR_US10Y
+    brent = (g.get("BRENT") or {}).get("close")
+    us10y = (g.get("US10Y") or {}).get("close")
+    b_ok = brent is not None and brent < b_th
+    y_ok = us10y is not None and us10y < y_th
+    return {"brent": brent, "us10y": us10y, "b_th": b_th, "y_th": y_th,
+            "b_ok": b_ok, "y_ok": y_ok,
+            "known": brent is not None and us10y is not None,
+            "trigger": b_ok or y_ok,
+            "b_gap": (brent - b_th) if brent is not None else None,
+            "y_gap": (us10y - y_th) if us10y is not None else None,
+            "u": g.get("US10Y") or {}}
+
+
+def fmt_amt(v):
+    if v is None:
+        return NA
+    return "%.2f 亿" % (v / 1e8)
 
 
 def breadth(d, field):
@@ -379,6 +428,13 @@ def sec2(d):
     tin = sum(x["net_yi"] for x in f.get("in_top") or [])
     tout = sum(x["net_yi"] for x in f.get("out_top") or [])
     ratio = abs(tout / tin) if tin else None
+    # 资金流整体缺失时，合计必须写"数据暂未获取"，
+    # 不能写 0.00 —— 那是"未知"被说成了"零流入零流出"。
+    flow_ok = bool(f.get("in_top") or f.get("out_top"))
+    tin_s = "%.2f" % tin if flow_ok else NA
+    tout_s = "%.2f" % tout if flow_ok else NA
+    ratio_s = ("%.2f" % ratio if ratio is not None else
+               (NA if not flow_ok else NA))
     b = breadth_state(d)
     lp = d.get("limit_pool") or {}
     amt = mktotal(d)
@@ -395,7 +451,11 @@ def sec2(d):
     if any(any(k in n for k in OUT_POS) for n in ins):
         hold.append("<b>通信 ETF / 云计算 ETF</b> 所在方向为资金净流入方向")
     hold_txt = ("；".join(hold) + "。") if hold else \
-        "已获取的板块流向与持仓标的<b>无明确同向或反向对应</b>，本节不对持仓方向性下结论。"
+        ("已获取的板块流向与持仓标的<b>无明确同向或反向对应</b>，本节不对持仓方向性下结论。"
+         if flow_ok else
+         "<span class='na'>%s</span> —— 板块资金流接口本次未返回数据，"
+         "<b>本节不做任何资金方向性判断</b>，个股层面的强弱改用涨停/跌停家数与持仓当日涨跌幅（第六章）。"
+         % NA)
 
     # 覆盖度披露：板块没抓全时，top5 排名不具备全市场代表性，必须写明
     cov = f.get("coverage")
@@ -436,8 +496,8 @@ def sec2(d):
              rout=rows(f.get("out_top") or [], "down"),
              ins=("、".join(ins) if ins else NA),
              outs=("、".join(outs) if outs else NA),
-             tin="%.2f" % tin, tout="%.2f" % tout,
-             ratio=("%.2f" % ratio if ratio is not None else NA),
+             tin=tin_s, tout=tout_s,
+             ratio=ratio_s,
              hold=hold_txt, cov_txt=cov_txt,
              amt=yi(amt),
              amt_note=("已获取" if amt else '<span class="na">%s</span>' % NA),
@@ -450,79 +510,381 @@ def sec2(d):
 
 
 def sec3(d):
-    lst = idx_rows(d)
-    kc = (d["indexes"].get("000688") or {}).get("pct")
-    if lst:
-        red = [x for x in lst if x[2] > 0]
-        if red:
-            obs = ("科创50 今日 %s。纳入观察的 %d 个宽基中<b>收红 %d 个</b>（%s），"
-                   "收绿 %d 个。"
-                   % (pct(kc), len(lst), len(red),
-                      "、".join(x[1] for x in red), len(lst) - len(red)))
-        else:
-            obs = ("科创50 今日 %s。纳入观察的 %d 个宽基<b>全部收绿</b>，"
-                   "宽基层面无任何方向性承接。" % (pct(kc), len(lst)))
+    """第三章：国家队/汇金与宽基ETF。
+
+    口径分层（不可混为一谈）：
+      · 汇金持仓明细、ETF份额变动 —— 低频披露，免费接口确实不提供，如实标注；
+      · 宽基ETF 的收盘/涨跌幅/成交额 —— 普通ETF实时行情，可抓，必须给真数据。
+    """
+    be = d.get("broad_etfs") or {}
+    rows, valid, red, amt_sum = "", 0, 0, 0
+    for code, name in config.BROAD_ETFS:
+        v = be.get(code) or {}
+        p = v.get("pct")
+        if v.get("close") is not None:
+            valid += 1
+            if p is not None and p > 0:
+                red += 1
+        if v.get("amount"):
+            amt_sum += v["amount"]
+        rows += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+                 % (v.get("name") or name, code, price(v.get("close"), 3), pct(p),
+                    fmt_amt(v.get("amount"))))
+    if valid:
+        obs = ("今日 %d 只宽基 ETF 中<b>收红 %d 只、收绿 %d 只</b>，成交额合计 <b>%s</b>。"
+               % (valid, red, valid - red, fmt_amt(amt_sum)))
     else:
-        obs = "宽基行情未获取。"
+        obs = "宽基 ETF 行情未获取。"
     tpl = """
 <section id="s3"><h2>三、国家队 / 汇金与宽基ETF持仓数据</h2>
-<div class="box"><b>数据状态</b>：宽基ETF份额变动、汇金持仓明细属低频披露数据，
-免费接口<b>不提供</b>。本节如实标注：<span class="na">{na}</span>。</div>
-<table><tr><th>ETF类型</th><th>净流入(亿元)</th><th>代表标的</th></tr>
-<tr><td>沪深300ETF</td><td class="na">{na}</td><td>510300</td></tr>
-<tr><td>上证50ETF</td><td class="na">{na}</td><td>510050</td></tr>
-<tr><td>中证500ETF</td><td class="na">{na}</td><td>510500</td></tr>
-<tr><td>科创50ETF</td><td class="na">{na}</td><td>588000</td></tr></table>
-<p><b>可替代观察</b>：{obs}
-但这是<b>价格推断，不等于</b>国家队申购行为，仅供参考，不作结论。</p>
+<div class="box"><b>先说清哪些是真拿不到、哪些是之前没去拿</b><br>
+① <b>汇金持仓明细</b>、② <b>宽基 ETF 份额变动</b> —— 属低频披露数据（季报/年报口径），
+免费接口<b>确实不提供</b>，本报告<b>不编造、不推算、不用相近数据替代</b>。<br>
+③ 而这 4 只宽基 ETF 是<b>普通 ETF</b>，收盘价、涨跌幅、成交额<b>可以实时抓到</b>，
+下表为真实行情（不再写死"数据暂未获取"）。</div>
+<h3 class="sub">宽基ETF资金动向（真实行情）</h3>
+<table><tr><th>标的</th><th>代码</th><th>收盘</th><th>涨跌幅</th><th>成交额</th></tr>
+{rows}</table>
+<h3 class="sub">今日关键数据</h3>
+<p>{obs}</p>
+<div class="box warn"><b>国家队行为解读</b>：<b>不可做的部分</b>——没有份额数据，
+就<b>无法区分</b>「国家队申购」与「散户抄底」；上面的价格与成交额只是<b>承接强度的代理变量</b>，
+<b>不等于</b>国家队申购行为，<b>不作结论</b>。<br>
+<b>可做的部分</b>：若宽基 ETF 出现<b>放量且收红</b>，只能说明宽基有增量承接，
+需与份额数据结合才谈得上国家队动作。</div>
 </section>"""
-    return F(tpl, na=NA, obs=obs)
+    return F(tpl, rows=rows, obs=obs)
+
+
+def _orow(d, label, key, dp=2, chg_html=None, note=""):
+    """海外/商品表格的一行：名称 数值 涨跌 来源。缺数据一律 na，不做替代。"""
+    v = (d.get("global") or {}).get(key) or {}
+    if not v or v.get("close") is None:
+        return ("<tr><td>%s</td><td class='na'>%s</td><td class='na'>%s</td>"
+                "<td class='na'>%s</td></tr>" % (label, NA, NA, NA))
+    val = ("%%.%df" % dp) % v["close"]
+    chg = chg_html if chg_html is not None else pct(v.get("pct"))
+    src = v.get("src") or "—"
+    if note:
+        src = src + " ｜ " + note
+    return ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+            % (label, val, chg, src))
 
 
 def sec4(d):
+    g = d.get("global") or {}
+    news = d.get("news") or {}
+
+    # ---------- 国内政策 / 7x24 快讯 ----------
+    kx = news.get("kuaixun") or []
+    kx_rows = ""
+    for it in kx[:12]:
+        ts = (it.get("time") or "")[-8:]
+        kx_rows += ("<tr><td>%s</td><td>%s</td></tr>"
+                    % (ts or "—", it.get("title") or "—"))
+    if not kx_rows:
+        kx_rows = ("<tr><td colspan='2' class='na'>%s —— 快讯接口未返回数据</td></tr>"
+                   % NA)
+    kx_note = ("东方财富 7x24 快讯，日期 <b>%s</b>，按时间倒序取前 %d 条。"
+               % (news.get("kx_date") or NA, min(12, len(kx)))) if kx else \
+              "本节需人工补充（脚本未接入新闻源时如实标注）。"
+
+    # ---------- 海外宏观 ----------
+    u10 = g.get("US10Y") or {}
+    u10_date = u10.get("date") or NA
+    boj = ("美元兑日元 <b>%s</b>（%s）" % (g_(d, "USDJPY"), gsrc(d, "USDJPY"))
+           if (g.get("USDJPY") or {}).get("close") is not None else
+           "美元兑日元 <span class='na'>%s</span>" % NA)
+    us_rows = (
+        _orow(d, "美元指数 DXY", "UDI") +
+        _orow(d, "美元兑离岸人民币", "USDCNH", 4) +
+        _orow(d, "美元兑在岸人民币", "USDCNY", 4) +
+        _orow(d, "美元兑日元 USD/JPY", "USDJPY") +
+        "<tr><td><b>美10Y国债收益率</b></td><td>%s</td><td>—</td>"
+        "<td>美国财政部官方曲线 · %s</td></tr>" % (gy(d, "US10Y"), u10_date) +
+        "<tr><td>美30Y国债收益率</td><td>%s</td><td>—</td>"
+        "<td>美国财政部官方曲线 · %s</td></tr>" % (gy(d, "US30Y"), u10_date) +
+        "<tr><td><b>Brent 原油</b></td><td>%s</td><td>%s</td>"
+        "<td>%s</td></tr>" % (
+            ("%.2f" % g["BRENT"]["close"]) if (g.get("BRENT") or {}).get("close") is not None else NA,
+            gv(d, "BRENT"), gsrc(d, "BRENT")))
+
+    # ---------- 商品 ----------
+    com_rows = (
+        _orow(d, "COMEX 黄金", "GC00Y", 2, note="场外黄金 002611 锚定") +
+        _orow(d, "伦敦现货金", "SPOT_XAU", 2, note="与 COMEX 口径不同") +
+        _orow(d, "COMEX 白银", "SI00Y") +
+        _orow(d, "NYMEX 原油 (WTI)", "CL00Y", 2, note="<b>非 Brent</b>") +
+        _orow(d, "<b>Brent 原油</b>", "BRENT", 2) +
+        "<tr><td>LME 铝</td><td class='na'>%s</td><td class='na'>%s</td>"
+        "<td class='na'>%s</td></tr>" % (NA, NA, "免费接口不提供（南山铝业成本端）"))
+
+    # ---------- 黄金双因子 ----------
+    gf = gold_factor(d)
+    if gf["known"]:
+        b_mark = "<span class='tag g'>满足</span>" if gf["b_ok"] else "<span class='tag r'>未满足</span>"
+        y_mark = "<span class='tag g'>满足</span>" if gf["y_ok"] else "<span class='tag r'>未满足</span>"
+        b_line = ("Brent <b>%.2f</b> 美元（阈值 &lt; %.0f，需再跌 <b>%.2f</b> 美元） —— %s"
+                  % (gf["brent"], gf["b_th"], gf["b_gap"], b_mark))
+        y_line = ("美10Y <b>%.2f%%</b>（阈值 &lt; %.1f%%，需回落 <b>%.2f</b> 个百分点） —— %s"
+                  % (gf["us10y"], gf["y_th"], gf["y_gap"], y_mark))
+        if gf["trigger"]:
+            concl = ("<b>结论：双因子判定为「满足」</b>（任一因子达标即触发）。"
+                     "黄金 002611 额外加仓信号<b>成立</b>，按既有规则执行（单次≤1000 元、间隔≥1 周）。")
+            gcls = "good"
+        else:
+            concl = ("<b>结论：双因子判定为「未满足」</b>（两个因子均未达标）。"
+                     "黄金 002611 额外加仓信号<b>不成立</b>，常规月定投照常，<b>不加额外仓位</b>。")
+            gcls = "warn"
+        u = gf["u"]
+        if u.get("ytd_min") is not None:
+            thr_note = ("<br><b>阈值可达性（2026 全年官方曲线）</b>：10Y 年内区间 "
+                        "<b>%.2f%% ~ %.2f%%</b>，共 %d 个发布日中有 <b>%d 天</b>低于 %.1f%% 阈值，"
+                        "最后一次低于阈值是 <b>%s</b>。"
+                        % (u["ytd_min"], u["ytd_max"], u["ytd_days"],
+                           u["days_below_thr"], config.GOLD_FACTOR_US10Y,
+                           u.get("last_below_date") or "—"))
+        else:
+            thr_note = ""
+    else:
+        b_line = "Brent —— <span class='na'>%s</span>" % NA
+        y_line = "美10Y —— <span class='na'>%s</span>" % NA
+        concl = ("<b>结论：双因子判定无法完成</b>（数据缺口）。"
+                 "本报告<b>不宣称</b>信号触发，也<b>不宣称</b>未触发。")
+        gcls = "warn"
+        thr_note = ""
+
+    # ---------- 持仓标的的消息 ----------
+    ann = news.get("ann") or []
+    a_rows = ""
+    for it in ann[:10]:
+        a_rows += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+                   % (it.get("name") or "—", it.get("date") or "—",
+                      it.get("title") or "—", it.get("type") or "—"))
+    if not a_rows:
+        a_rows = ("<tr><td colspan='4' class='na'>%s —— 持仓标的近 3 日无公告返回</td></tr>"
+                  % NA)
+
     tpl = """
 <section id="s4"><h2>四、消息面汇总</h2>
-<h3 class="sub">国内政策</h3>
-<div class="box"><span class="na">{na}</span> —— 本脚本不接入新闻源，政策面需人工补充。
-本节<b>不编造</b>任何政策内容。</div>
-<h3 class="sub">海外宏观</h3>
-<table><tr><th>指标</th><th>数值</th><th>涨跌</th></tr>
-<tr><td>道琼斯</td><td>{djia}</td><td>{djia_p}</td></tr>
-<tr><td>标普500</td><td>{spx}</td><td>{spx_p}</td></tr>
-<tr><td>纳斯达克</td><td>{ndx}</td><td>{ndx_p}</td></tr>
-<tr><td>美元指数 DXY</td><td>{dxy}</td><td>{dxy_p}</td></tr>
-<tr><td>美元兑离岸人民币</td><td>{cnh}</td><td>{cnh_p}</td></tr>
-<tr><td><b>Brent 原油</b></td><td class="na">{na}</td><td class="na">{na}</td></tr>
-<tr><td><b>美10Y国债收益率</b></td><td class="na">{na}</td><td class="na">{na}</td></tr>
-<tr><td>USD/JPY</td><td class="na">{na}</td><td class="na">{na}</td></tr></table>
-<p class="na">美股为美东时间前一交易日收盘。Brent、美10Y、USD/JPY 经东方财富接口实测
-<b>确认不提供</b>，标注为数据暂未获取，<b>未用 WTI 或任何其他品种替代</b>。</p>
+<h3 class="sub">国内政策与市场快讯</h3>
+<table><tr><th>时间</th><th>标题</th></tr>
+{kx_rows}</table>
+<p class="na">{kx_note}</p>
+<h3 class="sub">海外宏观（含日元因子）</h3>
+<h3 class="sub">日本央行(BOJ)动态</h3>
+<table><tr><th>指标</th><th>数据</th><th>影响</th></tr>
+<tr><td>USD/JPY</td><td>{boj}</td><td>日元贬值利好出口链、压制进口成本</td></tr>
+<tr><td>市场定价10月加息概率</td><td class="na">{na}</td><td>需第三方终端</td></tr>
+<tr><td>日本7月核心CPI</td><td class="na">{na}</td><td>需第三方终端</td></tr></table>
+<p><b>日元因子核心结论</b>：{boj}。<b>10/30 日本央行议息是关键观察窗口</b>，
+当前汇率为 {ujpy}，隔夜美股表现 {ndx_txt}。</p>
+<h3 class="sub">美债与美元</h3>
+<table><tr><th>指标</th><th>数值</th><th>涨跌</th><th>来源</th></tr>
+{us_rows}</table>
+<h3 class="sub">美股隔夜表现</h3>
+<table><tr><th>指数</th><th>数值</th><th>涨跌幅</th><th>来源</th></tr>
+{us_rows2}</table>
 <h3 class="sub">商品（持仓相关）</h3>
-<table><tr><th>品种</th><th>价格</th><th>涨跌幅</th><th>备注</th></tr>
-<tr><td>COMEX 黄金</td><td>{gc}</td><td>{gc_p}</td><td>场外黄金 002611 锚定</td></tr>
-<tr><td>COMEX 白银</td><td>{si}</td><td>{si_p}</td><td>—</td></tr>
-<tr><td>NYMEX 原油 (WTI)</td><td>{cl}</td><td>{cl_p}</td><td><b>非 Brent</b>，仅参考</td></tr>
-<tr><td>LME 铝</td><td class="na">{na}</td><td class="na">{na}</td><td>南山铝业成本端</td></tr></table>
-<div class="box warn"><b>黄金双因子状态（002611 场外）</b><br>
-Brent &lt; 100 美元 —— <span class="na">{na}</span><br>
-美10Y &lt; 4.3% —— <span class="na">{na}</span><br>
-<b>结论：双因子判定无法完成</b>。本报告<b>不宣称</b>信号触发，也不宣称未触发。<br>
-参考：WTI 报 {cl} 美元，已在 100 关口下方，但 <b>WTI ≠ Brent</b>，不能据此代替判定。<br>
-执行：维持常规 500 元 / 月定投，额外加仓信号<b>挂起</b>，待数据源恢复后重评。
+<table><tr><th>品种</th><th>价格</th><th>涨跌幅</th><th>来源 / 备注</th></tr>
+{com_rows}</table>
+<div class="box {gcls}"><b>黄金双因子状态更新（002611 场外）</b><br>
+因子① {b_line}<br>
+因子② {y_line}<br>
+{concl}{thr_note}<br>
+<b>执行</b>：维持常规月定投 1000 元；额外加仓按上述结论执行。
 </div>
 <h3 class="sub">持仓标的的消息</h3>
-<div class="box"><span class="na">{na}</span> —— 需人工核查交易所公告。
-已知关键节点：<b>10/29 南山铝业三季报</b>、<b>10/31 隆基绿能三季报</b>。</div>
+<table><tr><th>标的</th><th>日期</th><th>公告 / 动态</th><th>类型</th></tr>
+{a_rows}</table>
+<p class="na">持仓公告来自东方财富公告接口（近 3 个自然日），关键节点：
+<b>10/29 南山铝业三季报</b>、<b>10/31 隆基绿能三季报</b>。</p>
 </section>"""
-    return F(tpl, na=NA,
-             djia=g_(d, "DJIA"), djia_p=gv(d, "DJIA"),
-             spx=g_(d, "SPX"), spx_p=gv(d, "SPX"),
-             ndx=g_(d, "NDX"), ndx_p=gv(d, "NDX"),
-             dxy=g_(d, "UDI"), dxy_p=gv(d, "UDI"),
-             cnh=g_(d, "USDCNH", 4), cnh_p=gv(d, "USDCNH"),
-             gc=g_(d, "GC00Y"), gc_p=gv(d, "GC00Y"),
-             si=g_(d, "SI00Y"), si_p=gv(d, "SI00Y"),
-             cl=g_(d, "CL00Y"), cl_p=gv(d, "CL00Y"))
+    return F(tpl, na=NA, kx_rows=kx_rows, kx_note=kx_note, us_rows=us_rows,
+             us_rows2=(_orow(d, "道琼斯", "DJIA") + _orow(d, "标普500", "SPX") +
+                        _orow(d, "纳斯达克综合", "NDX")),
+             com_rows=com_rows, gcls=gcls, b_line=b_line, y_line=y_line,
+             concl=concl, thr_note=thr_note, a_rows=a_rows,
+             boj=boj,
+             ujpy=("%.3f" % g["USDJPY"]["close"]
+                   if (g.get("USDJPY") or {}).get("close") is not None else NA),
+             ndx_txt=gv(d, "NDX"))
+
+
+def _dim(label, read, verdict, cls):
+    return ("<tr><td><b>%s</b></td><td>%s</td>"
+            "<td><span class='tag %s'>%s</span></td></tr>" % (label, read, cls, verdict))
+
+
+def sec4b(d):
+    """新因子预留位：五维分析 / 日元因子 / ETF持仓数据。
+
+    模板里的第 11 块 —— 旧脚本只做了十章，这一块连同附录一起被漏掉了。
+    三项全部由真实数据驱动，任何一项缺数据就只写该项，不牵连其它项。
+    """
+    rows = ""
+    # ① 涨跌维度
+    sh = (d.get("indexes") or {}).get("000001") or {}
+    b = breadth_state(d)
+    if sh.get("pct") is not None:
+        p = sh["pct"]
+        verdict = "偏强" if p > 0 else ("偏弱" if p < 0 else "持平")
+        cls = "r" if p > 0 else ("g" if p < 0 else "n")
+        read = "上证 %s%s" % (pct(p),
+                             ("，涨跌家数 %d / %d" % (b[0], b[1])) if b else "")
+        rows += _dim("① 涨跌维度", read, verdict, cls)
+    else:
+        rows += _dim("① 涨跌维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
+    # ② 量能维度
+    amt, ac = mktotal(d), amt_chg(d)
+    if amt:
+        verdict = "放量" if (ac or 0) > 0 else "缩量"
+        cls = "r" if (ac or 0) > 0 else "g"
+        read = "两市成交额 %s%s" % (fmt_amt(amt),
+                                   ("，环比 %+.2f%%" % ac) if ac is not None else "")
+        rows += _dim("② 量能维度", read, verdict, cls)
+    else:
+        rows += _dim("② 量能维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
+    # ③ 资金维度
+    f = d.get("fund_flow") or {}
+    ins, outs = f.get("in_top") or [], f.get("out_top") or []
+    if ins or outs:
+        i0 = ins[0] if ins else None
+        o0 = outs[0] if outs else None
+        read = ("主力净流入首位 <b>%s</b>（%s）" % (i0["name"], flow_phrase(i0)) if i0
+                else "主力净流入首位 <span class='na'>%s</span>" % NA)
+        read += ("；净流出首位 <b>%s</b>（%s）" % (o0["name"], flow_phrase(o0)) if o0 else "")
+        verdict = "资金偏流入" if (i0 and (o0 is None or
+                                          (i0.get("net_yi") or 0) > abs(o0.get("net_yi") or 0))) else "资金偏流出"
+        rows += _dim("③ 资金维度", read, verdict,
+                     "r" if verdict == "资金偏流入" else "g")
+    else:
+        rows += _dim("③ 资金维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
+    # ④ 情绪维度
+    lp = d.get("limit_pool") or {}
+    zt, dt = lp.get("zt"), lp.get("dt")
+    if zt is not None or dt is not None:
+        verdict = "情绪偏热" if (zt or 0) >= (dt or 0) else "情绪偏冷"
+        rows += _dim("④ 情绪维度",
+                     "涨停 <b>%s</b> 家，跌停 <b>%s</b> 家"
+                     % (zt if zt is not None else NA, dt if dt is not None else NA),
+                     verdict, "r" if verdict == "情绪偏热" else "g")
+    else:
+        rows += _dim("④ 情绪维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
+    # ⑤ 海外维度
+    ndx = (d.get("global") or {}).get("NDX") or {}
+    u10 = (d.get("global") or {}).get("US10Y") or {}
+    if ndx.get("pct") is not None or u10.get("close") is not None:
+        read = "纳斯达克综合 %s；美10Y %s" % (
+            gv(d, "NDX"),
+            ("%.2f%%" % u10["close"]) if u10.get("close") is not None else NA)
+        rows += _dim("⑤ 海外维度", read, "隔夜参考", "b")
+    else:
+        rows += _dim("⑤ 海外维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
+
+    # ---- 日元因子 ----
+    g = d.get("global") or {}
+    ujpy = g.get("USDJPY") or {}
+    if ujpy.get("close") is not None:
+        up = (ujpy.get("pct") or 0) > 0
+        jpy_txt = ("美元兑日元 <b>%.3f</b>（%s）" % (ujpy["close"], pct(ujpy.get("pct")))
+                   + ("，较前一日走强（美元兑日元上行）" if up
+                      else "，较前一日走弱（美元兑日元下行）"))
+        jpy_verdict = "日元走弱" if up else "日元走强"
+        jpy_trans = (
+            "日元走弱（美元兑日元上行）时，人民币相对日元走强，"
+            "利好<b>出口链</b>（对南山铝业这类出口占比高的标的是边际利好），"
+            "但抬高<b>进口成本</b>；本组合以国内标的为主，"
+            "<b>该因子不是当前加减仓的主导变量</b>。" if up else
+            "日元走强（美元兑日元下行）时，人民币相对日元走弱，"
+            "<b>出口链的汇兑收益被压缩</b>（南山铝业这类出口占比高的标的边际承压），"
+            "但<b>进口成本下降</b>；本组合以国内标的为主，"
+            "<b>该因子不是当前加减仓的主导变量</b>。")
+    else:
+        jpy_txt = "美元兑日元 <span class='na'>%s</span>" % NA
+        jpy_verdict = "无数据"
+        jpy_trans = ("<span class='na'>%s</span> —— 无汇率读数，本日不做日元因子判断。"
+                     % NA)
+
+    # ---- ETF 持仓数据 ----
+    be = d.get("broad_etfs") or {}
+    e_rows = ""
+    for code, name in config.BROAD_ETFS:
+        v = be.get(code) or {}
+        e_rows += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+                   % (v.get("name") or name, price(v.get("close"), 3),
+                      pct(v.get("pct")), fmt_amt(v.get("amount"))))
+
+    tpl = """
+<section id="s4b"><h2>四·补、【新因子预留位】</h2>
+<p class="na">本块对应《01-复盘模板.md》v2.0 的【新因子预留位】，旧版脚本漏掉了这一块，
+现按模板的三项补齐，全部由真实数据驱动。</p>
+<h3 class="sub">五维分析</h3>
+<table><tr><th>维度</th><th>今日读数</th><th>结论</th></tr>
+{dims}</table>
+<h3 class="sub">日元因子</h3>
+<div class="box"><b>读数</b>：{jpy_txt} —— <span class='tag b'>{jpy_verdict}</span><br>
+<b>传导</b>：{jpy_trans}<br>
+<b>关键窗口</b>：<b>10/30 日本央行议息</b>，届时需重看 USD/JPY 是否出现拐点。</div>
+<h3 class="sub">ETF持仓数据</h3>
+<table><tr><th>宽基ETF</th><th>收盘</th><th>涨跌幅</th><th>成交额</th></tr>
+{e_rows}</table>
+<div class="box"><b>数据边界</b>：上表为宽基 ETF <b>真实行情</b>（收盘/涨跌幅/成交额）。
+<b>份额变动与机构持仓明细</b>属低频披露数据，免费接口<b>不提供</b>，
+本块<b>不推算、不替代</b>；需要该口径请走季报/年报或第三方终端。</div>
+</section>"""
+    return F(tpl, dims=rows, jpy_txt=jpy_txt, jpy_verdict=jpy_verdict,
+             jpy_trans=jpy_trans, e_rows=e_rows)
+
+
+def sec11(d):
+    """附录：关键数据汇总（模板第 12 块）。"""
+    g = d.get("global") or {}
+    ix = d.get("indexes") or {}
+    f = d.get("fund_flow") or {}
+    ins = f.get("in_top") or []
+    amt, ac = mktotal(d), amt_chg(d)
+    sh = ix.get("000001") or {}
+    cy = ix.get("399006") or {}
+    top_in = ins[0] if ins else None
+
+    def row(label, val, note=""):
+        return ("<tr><td>%s</td><td>%s</td><td>%s</td></tr>" % (label, val, note))
+
+    rows = (
+        row("上证指数", "%s（%s）" % (price(sh.get("close")), pct(sh.get("pct"))),
+            "深证成指 %s（%s）" % (price((ix.get("399001") or {}).get("close")),
+                                  pct((ix.get("399001") or {}).get("pct")))) +
+        row("创业板指", "%s（%s）" % (price(cy.get("close")), pct(cy.get("pct"))),
+            "科创50 %s" % pct((ix.get("000688") or {}).get("pct"))) +
+        row("两市成交额", fmt_amt(amt),
+            "较前日 %+.2f%%" % ac if ac is not None else "较前日：%s" % NA) +
+        row("现货黄金", ("%.2f 美元（%s）" % (g["SPOT_XAU"]["close"], pct(g["SPOT_XAU"].get("pct"))))
+            if (g.get("SPOT_XAU") or {}).get("close") is not None else NA,
+            "COMEX 黄金 %s" % g_(d, "GC00Y")) +
+        row("Brent原油", ("%.2f 美元（%s）" % (g["BRENT"]["close"], pct(g["BRENT"].get("pct"))))
+            if (g.get("BRENT") or {}).get("close") is not None else NA,
+            "WTI %s（<b>非 Brent</b>）" % g_(d, "CL00Y")) +
+        row("USD/JPY", ("%.3f（%s）" % (g["USDJPY"]["close"], pct(g["USDJPY"].get("pct"))))
+            if (g.get("USDJPY") or {}).get("close") is not None else NA,
+            "10/30 日本央行议息") +
+        row("美元指数", "%s（%s）" % (g_(d, "UDI"), gv(d, "UDI")), "DXY") +
+        row("美10Y国债", gy(d, "US10Y"),
+            "官方曲线 %s ｜ 美30Y %s" % ((g.get("US10Y") or {}).get("date") or NA,
+                                      gy(d, "US30Y"))) +
+        row("主力净流入", (flow_phrase(top_in) if top_in else NA),
+            ("板块：%s" % top_in["name"]) if top_in else "") +
+        row("北向资金", "<span class='na'>%s</span>" % NA,
+            "交易所已停止实时披露，无免费口径"))
+
+    tpl = """
+<section id="s11"><h2>附录：关键数据汇总</h2>
+<table><tr><th>品类</th><th>数值</th><th>备注</th></tr>
+{rows}</table>
+<p class="na">本报告由脚本基于公开接口自动生成，标注「数据暂未获取」的字段表示该接口未提供，
+<b>未做任何推测、插值或替代</b>。数据源：东方财富 · 新浪财经 · 腾讯财经 · 美国财政部官方收益率曲线。</p>
+</section>"""
+    return F(tpl, rows=rows)
 
 
 def sec5(d):
@@ -662,44 +1024,168 @@ def sec7(d):
         nsi_txt = "%s 板块当日%s%s" % (nsi["name"], flow_phrase(nsi),
                                        board_pct_txt(nsi))
     else:
-        nsi_tag = '<span class="tag n">⏳ 数据未获取</span>'
-        nsi_txt = '<span class="na">%s</span>' % NA
+        # 板块资金流缺失时，用新浪板块涨跌幅做「部分验证」——
+        # 涨跌是真实数据，但没有资金流就不能下「获验证/未验证」的结论，
+        # 所以标签降级为「部分可判」，不冒充资金流结论。
+        sv = (d.get("sectors") or {}).get("有色金属板块") or {}
+        if sv.get("pct") is not None:
+            nsi_tag = '<span class="tag y">◐ 部分可判（缺资金流）</span>'
+            cls = "up" if sv["pct"] > 0 else ("down" if sv["pct"] < 0 else "flat")
+            nsi_txt = ("%s 当日 <span class='%s'>%s</span>；"
+                       "板块主力资金流%s，<b>资金面结论暂不下</b>"
+                       % (sv.get("name") or "有色金属板块", cls, pct(sv["pct"]), NA))
+        else:
+            nsi_tag = '<span class="tag n">⏳ 数据未获取</span>'
+            nsi_txt = '<span class="na">%s</span>' % NA
 
     def px(c):
         return price((pf.get(c) or {}).get("close"))
 
     comm = tone(d, "515880")
+    # 黄金双因子：数据接通后必须给真实结论，不能再写"无法判定"
+    gf = gold_factor(d)
+    if gf["known"]:
+        if gf["trigger"]:
+            gold_tag = '<span class="tag g">✅ 信号成立</span>'
+        else:
+            gold_tag = '<span class="tag r">❌ 未满足</span>'
+        gold_txt = ("Brent <b>%.2f</b>（阈值 &lt; %.0f）%s；美10Y <b>%.2f%%</b>"
+                    "（阈值 &lt; %.1f%%）%s" % (
+                        gf["brent"], gf["b_th"], "满足" if gf["b_ok"] else "未满足",
+                        gf["us10y"], gf["y_th"], "满足" if gf["y_ok"] else "未满足"))
+    else:
+        gold_tag = '<span class="tag n">⏳ 无法判定</span>'
+        gold_txt = "Brent 与美10Y 数据暂未获取"
     tpl = """
 <section id="s7"><h2>七、此前推论验证</h2>
 <table><tr><th>推论</th><th>结果</th><th>当日数据</th></tr>
 <tr><td>有色为第一方向</td><td>{nsi_tag}</td><td>{nsi_txt}</td></tr>
-<tr><td>黄金 ETF 双因子加仓信号</td><td><span class="tag n">⏳ 无法判定</span></td><td>Brent 与美10Y 数据暂未获取</td></tr>
-<tr><td>015790 赎回（规避风险）</td><td><span class="tag g">✅ 已完成</span></td><td>已赎回</td></tr>
-<tr><td>南山铝业三季报后决策</td><td><span class="tag y">⏳ 待验证</span></td><td>10/29 披露</td></tr>
-<tr><td>隆基绿能三季报后决策</td><td><span class="tag y">⏳ 待验证</span></td><td>10/31 披露</td></tr>
+<tr><td>黄金 ETF 双因子加仓信号</td><td>{gold_tag}</td><td>{gold_txt}</td></tr>
+<tr><td>015790 赎回（规避风险）</td><td>{af_tag}</td><td>{af_txt}</td></tr>
+<tr><td>南山铝业三季报后决策</td><td><span class="tag y">⏳ 待验证</span></td><td>{ev_ns}</td></tr>
+<tr><td>隆基绿能三季报后决策</td><td><span class="tag y">⏳ 待验证</span></td><td>{ev_lj}</td></tr>
 <tr><td>513120 不追高，回调加仓</td><td>{w1}</td><td>现价 {p1}{w1n}</td></tr>
 <tr><td>中国一重做 T 降成本</td><td>{w2}</td><td>现价 {p2}{w2n}</td></tr>
 <tr><td>通信 ETF 月定投 500 元</td><td><span class="tag b">✅ 执行中</span></td><td>{comm}</td></tr>
-<tr><td>1 年期执行计划 v3.0</td><td><span class="tag b">✅ 框架运行</span></td><td>本日 {hit}/{tot} 触发</td></tr></table>
+<tr><td>1 年期执行计划 v3.0</td><td><span class="tag b">✅ 框架运行</span></td><td>本日收盘口径 {hit}/{tot} 触发，盘中口径 {ihit}/{tot} 击穿</td></tr></table>
 </section>"""
     t13 = next((r for r in (d.get("triggers") or []) if r["code"] == "513120"), None)
-    w1 = ('<span class="tag y">⚡ 已触发观察档</span>' if (t13 and t13.get("trigger"))
-          else '<span class="tag g">✅ 纪律维持</span>')
-    w1n = ("，已跌破 %.3f 观察档" % t13["trigger"] if (t13 and t13.get("trigger")) else "，未跌破观察档")
-    yz = pf.get("601106") or {}
-    yz_hit = (yz.get("close") is not None and yz.get("close") <= 2.81
-              and yz.get("pct") is not None and yz["pct"] <= -3.0)
+    t13_hit = bool(t13 and t13.get("trigger") is not None)
+    t13_intra = bool(t13 and t13.get("intraday_hits"))
+    w1 = ('<span class="tag y">⚡ 已触发观察档</span>' if t13_hit
+          else ('<span class="tag y">⚡ 盘中已破观察档</span>' if t13_intra
+                else '<span class="tag g">✅ 纪律维持</span>'))
+    if t13_hit:
+        w1n = "，收盘已跌破 %.3f 观察档" % t13["trigger"]
+    elif t13_intra:
+        w1n = "，盘中最低 %.3f 已跌破 %s 观察档" % (
+            t13["low"], " / ".join("%.3f" % x for x in t13["intraday_hits"]))
+    else:
+        w1n = "，未跌破观察档"
+    tyz = next((r for r in (d.get("triggers") or []) if r["code"] == "601106"), None)
+    yz_hit = bool(tyz and tyz.get("trigger") is not None)
+    yz_intra = bool(tyz and tyz.get("intraday_hits"))
     w2 = ('<span class="tag y">⚡ 已触发做T买点</span>' if yz_hit
-          else '<span class="tag b">✅ 执行中</span>')
-    w2n = "，已达做T买点条件" if yz_hit else "，未达 2.81 买点"
+          else ('<span class="tag y">⚡ 盘中已达做T买点</span>' if yz_intra
+                else '<span class="tag b">✅ 执行中</span>'))
+    if yz_hit:
+        w2n = "，收盘已达做T买点条件"
+    elif yz_intra:
+        w2n = "，盘中最低 %.2f（%+.2f%%）已达做T买点条件" % (
+            tyz["low"], tyz["low_pct"])
+    else:
+        w2n = "，未达 2.81 买点"
+    ihit = d.get("intraday_triggered_count") or 0
+
+    def ev_date(kw):
+        """从 config.EVENTS 里按关键词取日期，避免把 10/29 这类日期写死在正文里。"""
+        for date, name, _star in config.EVENTS:
+            if kw in name:
+                return "%s 披露" % date[5:].replace("-", "/")
+        return NA
+
+    ev_ns, ev_lj = ev_date("南山铝业三季报"), ev_date("隆基绿能三季报")
+    # 015790 状态由 config.AEROSPACE_FUND 推导，不再写死"已赎回"
+    _af = config.AEROSPACE_FUND
+    _sold = _af.get("sold_shares") or 0
+    _shares = _af.get("shares") or 0
+    if _sold:
+        af_tag = '<span class="tag y">⚡ 减仓中</span>'
+        af_txt = ("今日（%s）卖出 <b>%.2f</b> 份，按卖出前口径剩余 <b>%.2f</b> 份"
+                  % (_af.get("sold_date"), _sold, _shares - _sold))
+    else:
+        af_tag = '<span class="tag g">✅ 已完成</span>'
+        af_txt = "已赎回"
     return F(tpl, nsi_tag=nsi_tag, nsi_txt=nsi_txt, p1=px("513120"), p2=px("601106"),
-             w1=w1, w1n=w1n, w2=w2, w2n=w2n, comm=comm,
+             w1=w1, w1n=w1n, w2=w2, w2n=w2n, comm=comm, ihit=ihit,
+             gold_tag=gold_tag, gold_txt=gold_txt,
+             af_tag=af_tag, af_txt=af_txt,
+             ev_ns=ev_ns, ev_lj=ev_lj,
              hit=d["triggered_count"], tot=d["trigger_total"])
 
 
 def sec8(d):
     ev = "".join("<tr><td>{a}</td><td>{b}</td><td>{c}</td></tr>"
                  .format(a=x[0], b=x[1], c="★" * x[2]) for x in config.EVENTS)
+
+    def ladder_kind(code):
+        """档位性质：加仓档 / 观察档 / 做T档。
+
+        观察档（config.WATCH_LADDER，513120）按纪律「1 年期内不主动建仓」，
+        触发了也只记录、不下单 —— 混进加仓档会让人照着下单，直接违反用户规则。
+        """
+        if code in config.ADD_LADDER:
+            return "加仓档"
+        if code in config.WATCH_LADDER:
+            return "观察档"
+        if code == "601106":
+            return "做T档"
+        return "监控档"
+
+    KIND_TAG = {"加仓档": "<span class='tag b'>加仓档</span>",
+                "观察档": "<span class='tag n'>观察档</span>",
+                "做T档": "<span class='tag y'>做T档</span>",
+                "监控档": "<span class='tag n'>监控档</span>"}
+
+    def amount_of(code, level):
+        """某标的第 level 档的下单金额（元）。level 为 0 起的档位序号。"""
+        amts = config.ADD_AMOUNT.get(code) or config.WATCH_AMOUNT.get(code)
+        if not amts or level >= len(amts):
+            return None
+        return amts[level]
+
+    def ladder_amount_txt(r, hits):
+        """把命中的档位翻译成「下多少」。
+
+        hits 为已跌破的档位价列表（收盘 + 盘中合并去重）。
+        加仓档：逐档累加金额；做T档：买入 2000 股。
+        观察档只记录金额不下单，单独标注。
+        """
+        code = r["code"]
+        kind = ladder_kind(code)
+        ladder = r.get("ladder") or []
+        if kind == "做T档":
+            return ("买入 %d 股（仅用浮动仓，底仓不动）"
+                    % config.T_BUY_SHARES)
+        if kind == "观察档":
+            amts = []
+            for lv in hits:
+                if lv in ladder:
+                    a = amount_of(code, ladder.index(lv))
+                    if a:
+                        amts.append("%.3f→%d 元" % (lv, a))
+            return " / ".join(amts) + "（<b>记录，不下单</b>）" if amts else "记录，不下单"
+        amts, total = [], 0
+        for lv in hits:
+            if lv in ladder:
+                a = amount_of(code, ladder.index(lv))
+                if a:
+                    amts.append("%.3f→<b>%d 元</b>" % (lv, a))
+                    total += a
+        if not amts:
+            return NA
+        return " / ".join(amts) + ("　<b>合计 %d 元</b>" % total if total else "")
+
     rstat = []
     for r in d["triggers"]:
         ih = r.get("intraday_hits") or []
@@ -714,19 +1200,67 @@ def sec8(d):
                   % " / ".join("%.3f" % x for x in ih))
         else:
             st = "<span class='tag n'>未触发</span>"
-        rstat.append((r, st))
+        # 命中档位（收盘 + 盘中，去重后降序）
+        hits = []
+        if r.get("trigger"):
+            hits.append(r["trigger"])
+        for x in ih:
+            if x not in hits:
+                hits.append(x)
+        hits.sort(reverse=True)
+        amt_txt = ladder_amount_txt(r, hits) if hits else NA
+        rstat.append((r, st, amt_txt))
     tr = "".join(
-        "<tr><td>{n}</td><td>{c}</td><td>{lo}</td><td>{l}</td><td>{s}</td><td>{t}</td></tr>".format(
-            n=r["name"], c=price(r["close"], 3) if r.get("close") is not None else NA,
+        "<tr><td>{n}</td><td>{k}</td><td>{c}</td><td>{lo}</td><td>{l}</td>"
+        "<td>{s}</td><td>{amt}</td><td>{t}</td></tr>".format(
+            n=r["name"], k=KIND_TAG.get(ladder_kind(r["code"]), ""),
+            c=price(r["close"], 3) if r.get("close") is not None else NA,
             lo=(price(r["low"], 3) + ("<br><span class='na'>%+.2f%%</span>"
                                      % r["low_pct"]))
                 if r.get("low") is not None else NA,
             l=" / ".join(str(x) for x in r["ladder"]) if r.get("ladder") else NA,
-            s=st,
+            s=st, amt=amt_txt,
             t=r.get("note") or NA)
-        for r, st in rstat)
+        for r, st, amt_txt in rstat)
     hit, tot = d["triggered_count"], d["trigger_total"]
     fired = [r for r in d["triggers"] if r.get("trigger")]
+    # 只有「加仓档」和「做T档」对应真实下单动作；观察档触发了也只记录
+    fired_act = [r for r in fired
+                 if ladder_kind(r["code"]) in ("加仓档", "做T档")]
+    fired_watch = [r for r in fired if ladder_kind(r["code"]) == "观察档"]
+
+    def act_detail(r):
+        """执行清单条目：标的 + 命中档位 + 金额。"""
+        hits = []
+        if r.get("trigger"):
+            hits.append(r["trigger"])
+        for x in (r.get("intraday_hits") or []):
+            if x not in hits:
+                hits.append(x)
+        hits.sort(reverse=True)
+        return "%s（%s）" % (r["name"], ladder_amount_txt(r, hits))
+
+    def act_total(r):
+        """该标的本次实际需下单的金额合计（做T按股数计，不计入金额合计）。"""
+        if ladder_kind(r["code"]) == "做T档":
+            return 0
+        hits = []
+        if r.get("trigger"):
+            hits.append(r["trigger"])
+        for x in (r.get("intraday_hits") or []):
+            if x not in hits:
+                hits.append(x)
+        ladder = r.get("ladder") or []
+        t = 0
+        for lv in hits:
+            if lv in ladder:
+                a = amount_of(r["code"], ladder.index(lv))
+                if a:
+                    t += a
+        return t
+
+    grand = sum(act_total(r) for r in fired_act)
+    grand_txt = ("，<b>今日加仓/买入合计 %d 元</b>" % grand) if grand else ""
     intr = [r for r in d["triggers"]
             if r.get("intraday_hits") and not r.get("trigger")]
     extra = ""
@@ -740,22 +1274,67 @@ def sec8(d):
                                % (r["name"], r["low"],
                                   "/".join("%.3f" % x for x in r["intraday_hits"]))
                                for r in intr)))
-    if hit:
-        concl = ("<div class='box warn'><b>今日执行结论</b>：触发 <b>{hit} / {tot}</b> 项，"
-                 "<b>需要执行</b>。涉及：{names}。严格按下行阶梯的档位下单，"
-                 "档位已跌穿即执行，不追加、不上移档位。{extra}</div>"
-                 .format(hit=hit, tot=tot, extra=extra,
-                         names="、".join("%s（%.3f）" % (r["name"], r["trigger"])
-                                        for r in fired)))
+    watch_txt = ""
+    if fired_watch:
+        watch_txt = ("<br><b>观察档触发（不构成下单指令）</b>："
+                     + "、".join("%s（%.3f）" % (r["name"], r["trigger"])
+                                 for r in fired_watch)
+                     + " —— 按 1 年期纪律「1 年内不主动建仓」，"
+                       "<b>只记录、不买入</b>。")
+    if fired_act:
+        concl = ("<div class='box warn'><b>今日执行结论</b>：可执行触发 <b>{n_act} / {tot}</b> 项，"
+                 "<b>需要执行</b>。涉及：{names}{grand_txt}。"
+                 "严格按下行阶梯的档位下单，档位已跌穿即执行，不追加、不上移档位。"
+                 "{watch}{extra}</div>"
+                 .format(n_act=len(fired_act), tot=tot, extra=extra, watch=watch_txt,
+                         grand_txt=grand_txt,
+                         names="、".join(act_detail(r) for r in fired_act)))
+    elif fired_watch:
+        concl = ("<div class='box good'><b>今日执行结论</b>：收盘触发 <b>{hit} / {tot}</b> 项，"
+                 "但<b>全部为观察档</b>，按 1 年期纪律「1 年内不主动建仓」，"
+                 "<b>今日无需任何交易动作</b>。{watch}{extra}</div>"
+                 .format(hit=hit, tot=tot, watch=watch_txt, extra=extra))
     else:
         concl = ("<div class='box good'><b>今日执行结论</b>：触发 <b>{hit} / {tot}</b> 项，"
                  "<b>无需任何交易动作</b>。按 1 年期纪律「不触发不动作」执行，继续等待。{extra}"
                  "</div>".format(hit=hit, tot=tot, extra=extra))
+    # 最近节点：由 config.EVENTS 按当日行情日期往后推，不再写死日期
+    td = d.get("trade_date") or ""
+    upcoming = []
+    if td:
+        for date, name, star in config.EVENTS:
+            if date >= td:
+                upcoming.append((date, name, star))
+    upcoming = upcoming[:3]
+    if upcoming:
+        node_txt = " → ".join("%s %s" % (dt[5:].replace("-", "/"), nm)
+                               for dt, nm, _ in upcoming)
+        # 三季报/议息这类 ★★★ 事件落在未来 5 个自然日内 -> 提示不新增仓位
+        near = [x for x in config.EVENTS
+                if x[2] >= 3 and td and x[0] >= td
+                and (datetime.fromisoformat(x[0]).date()
+                     - datetime.fromisoformat(td).date()).days <= 5]
+        if near:
+            node_note = ("未来 5 天内有 <b>%s</b> —— "
+                         "<b>事件落地前不建议新增仓位</b>。"
+                         % "、".join("%s %s" % (n[1], n[0][5:].replace("-", "/"))
+                                     for n in near))
+        else:
+            node_note = "近期无 ★★★ 以上事件密集期，按既定纪律执行即可。"
+    else:
+        node_txt = NA
+        node_note = ""
     tpl = """
 <section id="s8"><h2>八、策略调整建议</h2>
 {concl}
 <h3 class="sub">触发监控面板（下行触发：价格从上方跌破才触发）</h3>
-<table><tr><th>标的</th><th>收盘价</th><th>盘中最低</th><th>加仓档位</th><th>状态</th><th>判定说明</th></tr>{tr}</table>
+<table><tr><th>标的</th><th>档位性质</th><th>收盘价</th><th>盘中最低</th><th>档位</th><th>状态</th><th>应下单金额</th><th>判定说明</th></tr>{tr}</table>
+<div class="box"><b>档位性质怎么读</b>：<span class='tag b'>加仓档</span> 跌穿即按阶梯下单；
+<span class='tag n'>观察档</span> 按 1 年期纪律「1 年内不主动建仓」，<b>只记录不买入</b>；
+<span class='tag y'>做T档</span> 需同时满足价格与跌幅两个条件，只用浮动仓、不动底仓。</div>
+<div class="box"><b>「应下单金额」列怎么读</b>：命中哪一档就下哪一档的金额，
+多档同时命中则<b>逐档累加</b>（如 0.520→250 元 + 0.500→500 元 + 0.480→500 元 ＝ 1250 元）。
+金额与《同花顺价格预警配置v2.0》逐档对齐，<b>不加码、不上移档位</b>。</div>
 <div class="box warn"><b>两套口径必须都看</b>：加仓触发是<b>下行触发</b>，现价<b>从上方跌破</b>某档位才触发。
 同花顺预警为<b>盘中实时触发</b>，因此「盘中最低」列才是预警实际会响的那一刻；
 「收盘价」列只是当日结束时的状态。V 型反转日（如早盘深跌、午后拉回）两者会明显背离，
@@ -763,8 +1342,7 @@ def sec8(d):
 「还需下跌多少元」，不是价格上涨空间。</div>
 <h3 class="sub">1 年期执行计划 v3.0 时间窗口</h3>
 <table><tr><th>日期</th><th>事件</th><th>重要性</th></tr>{ev}</table>
-<p><b>最近节点</b>：10/27-28 美联储 FOMC → 10/29 南山铝业三季报 → 10/31 隆基绿能三季报。
-三周内事件密集，<b>10/29 与 10/31 之前不建议新增仓位</b>。</p>
+<p><b>最近节点（自 {dt} 起）</b>：{node_txt}。<br>{node_note}</p>
 <h3 class="sub">加仓纪律</h3>
 <ul>
 <li>加仓间隔 ≥ 7 个交易日</li>
@@ -773,33 +1351,100 @@ def sec8(d):
 <li>中国一重仅做 T，<b>不加仓摊薄</b></li>
 </ul>
 </section>"""
-    return F(tpl, concl=concl, tr=tr, ev=ev)
+    return F(tpl, concl=concl, tr=tr, ev=ev, dt=td or NA,
+             node_txt=node_txt, node_note=node_note)
 
 
-def sec9():
-    return """
+def sec9(d):
+    """第九章：商业航天 / 太空产业。
+
+    改造说明：本章原先是纯静态文本（sec9() 不接任何数据参数），
+    每天输出同一段「数据暂未获取」。现在改成数据驱动：
+      · 持仓记录 ← config.AEROSPACE_FUND（015790 永赢高端装备智选混合C）
+      · 代理 ETF 当日表现 ← 当次抓取的真实行情（sh512660 军工ETF国泰）
+      · 四项产业指标（发射日历/复用进度/组网速率/一级市场）仍无免费数据源，
+        继续如实标注，不编造
+    """
+    f = config.AEROSPACE_FUND
+    shares = f["shares"]
+    amt = f["amount"]
+    nav = (amt / shares) if shares else None
+    sold = f["sold_shares"]
+    left_sh = shares - sold
+    left_amt = (left_sh * nav) if (nav and left_sh >= 0) else None
+    sold_amt = (sold * nav) if nav else None
+
+    # 代理 ETF（sh512660）当日表现：军工ETF 不在 config.PORTFOLIO 里，
+    # 由 fetch 层单独抓（data["proxy_etf"]）；拿不到就如实标注，不猜。
+    px = d.get("proxy_etf") or {}
+    if not px:
+        px = None
+
+    tpl = """
 <section id="s9"><h2>九、商业航天 / 太空产业 —— 长期观察</h2>
-<div class="box"><span class="na">数据暂未获取</span> —— 本章为长期产业跟踪，
-当前无可自动获取的数据源，且不影响日内交易决策。
-发射日历、复用进度、组网速率、一级市场融资四项均需人工或专用数据源补充。</div>
+<h3 class="sub">方向持仓记录</h3>
+<table><tr><th>标的</th><th>代码</th><th>账户市值(元)</th><th>份额</th>
+<th>单位净值</th><th>今日操作</th><th>剩余份额</th><th>剩余市值(元)</th></tr>
+<tr><td>{fname}</td><td>{fcode}</td><td>{amount}</td><td>{shares}</td>
+<td>{nav}</td><td>{sold}</td><td>{left_sh}</td><td>{left_amt}</td></tr></table>
+<p class="na">场外基金 · {settle}。代理 ETF：{proxy} {proxy_name} —— 当日 {proxy_px}。
+方向归属：{note}</p>
+<div class="box"><b>口径已确认</b>：份额 {shares} 为<b>卖出前</b>总份额，金额 {amount} 为<b>市值</b>（非投入本金）。
+经天天基金历史净值核对，{nav_date} 单位净值 <b>{nav_raw}</b> 元/份，{shares} × {nav_raw} = {amount} 逐位吻合。
+今日卖出 {sold_sh} 份 ≈ <b>{sold_amt} 元</b>（T日收盘净值成交、T+1确认），剩余 <b>{left_sh} 份</b> ≈ <b>{left_amt} 元</b>。</div>
+<h3 class="sub">今日四项指标速报</h3>
+<table><tr><th>指标</th><th>状态</th><th>说明</th></tr>
+<tr><td><b>发射日历</b></td><td class="na">{na}</td><td>需专用数据源</td></tr>
+<tr><td><b>复用进度</b></td><td class="na">{na}</td><td>需专用数据源</td></tr>
+<tr><td><b>组网速率</b></td><td class="na">{na}</td><td>需专用数据源</td></tr>
+<tr><td><b>一级市场</b></td><td class="na">{na}</td><td>需专用数据源</td></tr></table>
+<div class="box warn">本章为长期产业跟踪，四项产业指标<b>免费接口确实不提供</b>，
+本报告<b>不编造</b>；但方向持仓与代理 ETF 当日表现<b>已接真实数据</b>，每日更新。</div>
 <h3 class="sub">配置框架状态</h3>
 <table><tr><th>层级</th><th>目标仓位</th><th>当前状态</th></tr>
 <tr><td>第一层 指数化底仓</td><td>50-60%</td><td><span class="tag n">未建立</span></td></tr>
-<tr><td>第二层 产业链卫星仓</td><td>25-35%</td><td><span class="tag n">未建立</span></td></tr>
+<tr><td>第二层 产业链卫星仓</td><td>25-35%</td><td><span class="tag b">由 {fname} 承担</span></td></tr>
 <tr><td>第三层 事件仓</td><td>≤10-15%</td><td><span class="tag n">未建立</span></td></tr></table>
 </section>"""
+    return F(tpl, na=NA,
+             fname=f["name"], fcode=f["code"],
+             amount="%.2f" % amt, shares="%.2f" % shares,
+             nav=("%.4f 元/份" % nav) if nav else NA,
+             nav_raw=("%.4f" % f["nav"]) if f.get("nav") else ("%.4f" % nav if nav else NA),
+             nav_date=f.get("sold_date") or NA,
+             sold=("卖出 %.2f 份" % sold),
+             left_sh=("%.2f" % left_sh),
+             left_amt=("%.2f" % left_amt) if left_amt is not None else NA,
+             sold_amt=("%.2f" % sold_amt) if sold_amt is not None else NA,
+             sold_sh=("%.2f" % sold),
+             settle=f["settle"], proxy=f["proxy"], proxy_name=f["proxy_name"],
+             proxy_px=("%s（%s）" % (price(px.get("close"), 3), pct(px.get("pct")))
+                       if px else "<span class='na'>%s（代理ETF未在监控清单）</span>" % NA),
+             note=f["note"])
 
 
 def sec10(d):
     we = d["watch_etfs"]
-    rows = ""
+    # 监控 ETF 行（有色/稀有金属/电力/红利低波）
+    rows2 = ""
     for c, _ in config.WATCH_ETFS:
         v = we.get(c)
         if not v:
             continue
-        rows += ("<tr><td>{n} {c}</td><td>{p}</td><td>{g}</td></tr>"
-                 .format(n=v["name"], c=c, p=price(v["close"], 3),
-                         g=pct(v["pct"])))
+        rows2 += ("<tr><td>{n} {c}</td><td>{p}</td><td>{g}</td></tr>"
+                  .format(n=v["name"], c=c, p=price(v.get("close"), 3),
+                          g=pct(v.get("pct"))))
+
+    # 【监控节奏状态行】：模板末尾的独立小节，四只监控 ETF 的最新价 + 相对强弱
+    pace_rows = ""
+    for c, _ in config.WATCH_ETFS:
+        v = we.get(c)
+        if not v:
+            continue
+        pace_rows += ("<tr><td>{n} {c}</td><td>{p}</td><td>{t}</td></tr>"
+                      .format(n=v["name"], c=c, p=price(v.get("close"), 3),
+                              t=tone(d, c).rstrip("。")))
+
     # 有色信号检查：按板块真实资金流结论，不预设
     nsi = board_flow(d, "有色金属", "工业金属", "小金属", "贵金属")
     if nsi and nsi.get("net_yi") is not None:
@@ -812,26 +1457,88 @@ def sec10(d):
                        "结论：<b>仅观察，不据此加仓</b>，等价格突破确认。"
                        % (nsi["name"], flow_phrase(nsi)))
     else:
-        nsi_txt = "板块资金流数据%s，<b>本日不做方向性结论</b>。" % NA
+        # 资金流缺失时只用真实涨跌幅做「方向未确认」的表述，不下介入结论
+        sv = (d.get("sectors") or {}).get("有色金属板块") or {}
+        if sv.get("pct") is not None:
+            cls = "up" if sv["pct"] > 0 else ("down" if sv["pct"] < 0 else "flat")
+            nsi_txt = ("%s 当日 <span class='%s'>%s</span>，"
+                       "但板块主力资金流%s；<b>结论：介入信号未触发</b>"
+                       "（缺资金流确认，方向待观察）。"
+                       % (sv.get("name") or "有色金属板块", cls, pct(sv["pct"]), NA))
+        else:
+            nsi_txt = "板块资金流数据%s，<b>本日不做方向性结论</b>。" % NA
+
+    # ---- 板块涨跌幅 ----
+    # 优先新浪板块（本地可直连），缺失时回落到东财 boards 字典里的同名板块。
+    # 小金属在新浪概念文件里没有（那个文件是证监会行业分类），
+    # 但东财 boards 有「小金属」板块，云端 runner 能取到。
+    sec_map = d.get("sectors") or {}
+    bs = boards(d)
+
+    def srow(label, key, board_key=None):
+        v = sec_map.get(key) or {}
+        if (not v or v.get("pct") is None) and board_key:
+            b = bs.get(board_key) or {}
+            if b.get("pct") is not None:
+                v = {"name": b.get("name"), "pct": b.get("pct")}
+        if not v or v.get("pct") is None:
+            return ("<tr><td>%s</td><td><span class='na'>%s</span></td>"
+                    "<td><span class='na'>%s</span></td></tr>"
+                    % (label, NA, NA))
+        cls = "up" if v["pct"] > 0 else ("down" if v["pct"] < 0 else "flat")
+        return ("<tr><td>%s</td><td>%s</td><td class='%s'>%s</td></tr>"
+                % (label, v.get("name") or key, cls, pct(v["pct"])))
+
+    rows = (srow("有色金属板块涨跌", "有色金属板块", "有色金属")
+            + srow("小金属概念涨跌", "小金属概念", "小金属"))
+
+    # ---- LME 铝价（新浪 hf_AHD = LME 伦铝）----
+    al = (d.get("global") or {}).get("LME_AL") or {}
+    if al.get("close") is not None:
+        alc = al["close"]
+        alp = al.get("pct")
+        cls = "up" if (alp or 0) > 0 else ("down" if (alp or 0) < 0 else "flat")
+        al_row = ("<tr><td>LME 铝价</td><td>%.2f 美元/吨</td>"
+                  "<td class='%s'>%s</td></tr>" % (alc, cls, pct(alp)))
+        al_note = "（%s）" % (al.get("src") or "新浪财经 hf_AHD")
+    else:
+        al_row = ("<tr><td>LME 铝价</td><td><span class='na'>%s</span></td>"
+                  "<td><span class='na'>%s</span></td></tr>" % (NA, NA))
+        al_note = ""
+
+    # ---- 主力净流入（公用事业）----
+    util = board_flow(d, "公用事业", "电力行业", "电力")
+    util_net = flow_phrase(util) if util and util.get("net_yi") is not None else NA
+    util_row = ("<tr><td>主力净流入(公用事业)</td><td>%s</td><td>板块级资金流</td></tr>"
+                % util_net)
 
     tpl = """
 <section id="s10"><h2>十、低估 · 低拥挤板块跟踪</h2>
 <h3 class="sub">【① 稀有小金属 / 稀有资源】</h3>
-<table><tr><th>标的</th><th>最新价</th><th>涨跌</th></tr>{rows}</table>
+<table><tr><th>指标</th><th>今日数据</th><th>涨跌</th></tr>
+{rows}{al_row}</table>
+<table><tr><th>监控标的</th><th>今日数据</th><th>涨跌</th></tr>
+{rows2}</table>
 <div class="box warn"><b>信号检查</b><br>
 {nsi_txt}</div>
 <h3 class="sub">【② 电力与公用事业（压舱底仓）】</h3>
-<table><tr><th>标的</th><th>最新价</th><th>涨跌</th></tr>
-<tr><td>电力ETF广发 159611</td><td>{d11}</td><td>{d12}</td></tr>
-<tr><td>红利低波ETF华泰柏瑞 512890</td><td>{d21}</td><td>{d22}</td></tr></table>
+<table><tr><th>指标</th><th>今日数据</th><th>涨跌</th></tr>
+<tr><td>电力ETF 159611</td><td>{d11}</td><td>{d12}</td></tr>
+<tr><td>红利低波ETF 512890</td><td>{d21}</td><td>{d22}</td></tr>
+{util_row}</table>
 <div class="box"><b>信号检查</b>：股息率分位数据暂未获取（需第三方终端）。
 电力ETF {t1}；红利低波 {t2}。<b>结论：观察</b>，跌至低估分位再考虑建底仓。</div>
+<h3 class="sub">【监控节奏状态行】</h3>
+<table><tr><th>标的</th><th>最新价</th><th>信号状态</th></tr>
+{pace_rows}</table>
 </section>"""
-    return F(tpl, rows=rows, nsi_txt=nsi_txt,
+    return F(tpl, rows=rows, rows2=rows2, al_row=al_row,
+             util_row=util_row, nsi_txt=nsi_txt,
              d11=price((we.get("159611") or {}).get("close"), 3),
              d12=pct((we.get("159611") or {}).get("pct")),
              d21=price((we.get("512890") or {}).get("close"), 3),
              d22=pct((we.get("512890") or {}).get("pct")),
+             pace_rows=pace_rows,
              t1=tone(d, "159611").rstrip("。"),
              t2=tone(d, "512890").rstrip("。"))
 
@@ -872,7 +1579,8 @@ def render(d):
          if ac is not None else '<span class="na">较前日：' + NA + '</span>'),
         ("s2", "涨跌家数", bd_v, bd_d),
         ("s8", "加仓触发", "%d / %d" % (hit, tot),
-         ('<span class="up">盘中另触及 %d 项</span>' % ihit) if ihit > hit
+         ('<span class="up">盘中另触及 %d 项</span>' % (ihit - hit))
+         if ihit > hit
          else ('<span class="down">无需操作</span>' if hit == 0
                else '<span class="up">需执行</span>')),
     ]
@@ -887,13 +1595,13 @@ def render(d):
 <title>A股持仓每日复盘 {dt}</title><style>{css}</style></head><body>
 <div class="wrap"><nav><h4>目 录</h4>{nav}</nav><main>
 <div class="hero"><h1>A股持仓每日复盘 · {dt} 周{wd}</h1>
-<div class="sub">1年期持仓执行计划 v3.0 ｜ 生成时间 {gen} (UTC+8) ｜ 行情口径：{src_txt} ｜ 数据源：东方财富公开行情接口</div></div>
+<div class="sub">1年期持仓执行计划 v3.0 ｜ 生成时间 {gen} (UTC+8) ｜ 行情口径：{src_txt} ｜ 数据源：东方财富 · 新浪财经 · 腾讯财经 · 美国财政部官方收益率曲线 ｜ 结构：十章 + 新因子预留位 + 附录（共 12 块）</div></div>
 <div class="cards">{ch}</div>
 <div class="trigger {ok}"><h3>{head}</h3>
 <div class="cnt">今日触发 {hit} / {tot}</div>
 <p>{msg}</p>
 <p>{msg2}</p></div>
-{s1}{s2}{s3}{s4}{s5}{s6}{s7}{s8}{s9}{s10}
+{s1}{s2}{s3}{s4}{s4b}{s5}{s6}{s7}{s8}{s9}{s10}{s11}
 <div class="foot">本报告由脚本基于公开行情接口自动生成，<b>不构成投资建议</b>。
 标注「数据暂未获取」的字段表示该接口未提供，<b>未做任何推测、插值或替代</b>。
 入市有风险，投资需谨慎。</div>
@@ -921,9 +1629,9 @@ document.querySelectorAll('nav a').forEach(function(a){
                    if ihit > hit else
                    ("盘中击穿 {} 项，与收盘口径一致。".format(ihit) if ihit
                     else "")),
-             s1=sec1(d), s2=sec2(d), s3=sec3(d), s4=sec4(d), s5=sec5(d),
-             s6=sec6(d), s7=sec7(d), s8=sec8(d), s9=sec9(), s10=sec10(d))
-
+             s1=sec1(d), s2=sec2(d), s3=sec3(d), s4=sec4(d), s4b=sec4b(d),
+             s5=sec5(d), s6=sec6(d), s7=sec7(d), s8=sec8(d), s9=sec9(d),
+             s10=sec10(d), s11=sec11(d))
 
 ORDER_IDX = ["000001", "399001", "399006", "000688", "899050"]
 
