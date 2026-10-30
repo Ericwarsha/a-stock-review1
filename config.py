@@ -160,11 +160,27 @@ SINA_FX = [
 ]
 
 # ---- 新浪 / 腾讯 hf 外盘备用（腾讯字段序与新浪不同，见 fetch_market）----
+# 腾讯这层是新浪的兜底：2026-10-30 云端跑时新浪 hf_AHD 单独失败，
+# 导致第十章 LME 铝价整行缺失；腾讯同字段可用（实测 hf_AHD=伦铝）。
 TX_HF = [
     ("hf_OIL", "BRENT", "布伦特原油"),
     ("hf_CL",  "CL00Y", "NYMEX原油(WTI)"),
     ("hf_GC",  "GC00Y", "COMEX黄金"),
     ("hf_SI",  "SI00Y", "COMEX白银"),
+    ("hf_XAU", "SPOT_XAU", "伦敦现货金"),
+    ("hf_AHD", "LME_AL", "LME伦铝"),
+    ("hf_CAD", "LME_CU", "LME伦铜"),
+]
+
+# ---- 新浪隔夜指数（int_* 前缀，海外宏观用）----
+# int_nikkei/int_dji/int_nasdaq/int_sp500：当日实时值（新浪内盘指数接口）。
+# 用途：日经225 = 日本货币政策的市场即时定价（替代拿不到的日本CPI）；
+#      道指/纳指/标普 = 隔夜美股收盘，用于"隔夜美股表现"与 BOJ 窗口联动。
+SINA_INT_INDEX = [
+    ("int_nikkei",  "NIKKEI",       "日经225"),
+    ("int_dji",     "DJIA_CLOSE",  "道琼斯(收盘)"),
+    ("int_nasdaq",  "NASDAQ_CLOSE", "纳斯达克(收盘)"),
+    ("int_sp500",   "SPX_CLOSE",   "标普500(收盘)"),
 ]
 
 # ---- 商业航天 / 高端装备 方向持仓（第九章，场外基金）----

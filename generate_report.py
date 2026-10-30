@@ -418,7 +418,7 @@ def sec2(d):
 
     def rows(lst, cls):
         s = ""
-        for x in lst[:3]:
+        for x in lst[:5]:
             s += ("<tr><td>%s</td><td class='%s'>%+.2f</td><td>%s</td></tr>"
                   % (x["name"], cls, x["net_yi"], pct(x["pct"])))
         return s or "<tr><td colspan='3' class='na'>%s</td></tr>" % NA
@@ -428,13 +428,15 @@ def sec2(d):
     tin = sum(x["net_yi"] for x in f.get("in_top") or [])
     tout = sum(x["net_yi"] for x in f.get("out_top") or [])
     ratio = abs(tout / tin) if tin else None
-    # 资金流整体缺失时，合计必须写"数据暂未获取"，
-    # 不能写 0.00 —— 那是"未知"被说成了"零流入零流出"。
-    flow_ok = bool(f.get("in_top") or f.get("out_top"))
-    tin_s = "%.2f" % tin if flow_ok else NA
-    tout_s = "%.2f" % tout if flow_ok else NA
-    ratio_s = ("%.2f" % ratio if ratio is not None else
-               (NA if not flow_ok else NA))
+    # 流入、流出必须各自判空。
+    # 2026-10-30 云端实测踩过：只有 in_top 拿到、out_top 被东财掐断为空，
+    # 旧写法用 bool(in_top or out_top) 当"整体可用"，
+    # 于是写出"流出前5合计 0.00 亿、流出是流入的 0.00 倍"——把未知说成了零。
+    in_ok, out_ok = bool(f.get("in_top")), bool(f.get("out_top"))
+    tin_s = "%.2f" % tin if in_ok else NA
+    tout_s = "%.2f" % tout if out_ok else NA
+    # 倍数只在两侧都有数据时才给，否则写"数据暂未获取"
+    ratio_s = ("%.2f" % ratio) if (in_ok and out_ok and tin) else NA
     b = breadth_state(d)
     lp = d.get("limit_pool") or {}
     amt = mktotal(d)
@@ -509,15 +511,23 @@ def sec2(d):
              dt=lp.get("dt") if lp.get("dt") is not None else NA)
 
 
+def flow_amt(v):
+    """主力净流入（元）→ 带符号亿元。缺失一律 na，不写 0.00。"""
+    if v is None:
+        return '<span class="na">%s</span>' % NA
+    cls = "up" if v > 0 else ("down" if v < 0 else "flat")
+    return '<span class="%s">%+.2f 亿</span>' % (cls, v / 1e8)
+
+
 def sec3(d):
     """第三章：国家队/汇金与宽基ETF。
 
     口径分层（不可混为一谈）：
       · 汇金持仓明细、ETF份额变动 —— 低频披露，免费接口确实不提供，如实标注；
-      · 宽基ETF 的收盘/涨跌幅/成交额 —— 普通ETF实时行情，可抓，必须给真数据。
+      · 宽基ETF 的收盘/涨跌幅/成交额/规模/主力净流入 —— 普通ETF实时行情，可抓，必须给真数据。
     """
     be = d.get("broad_etfs") or {}
-    rows, valid, red, amt_sum = "", 0, 0, 0
+    rows, valid, red, amt_sum, flow_sum = "", 0, 0, 0, None
     for code, name in config.BROAD_ETFS:
         v = be.get(code) or {}
         p = v.get("pct")
@@ -527,12 +537,20 @@ def sec3(d):
                 red += 1
         if v.get("amount"):
             amt_sum += v["amount"]
-        rows += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+        if v.get("flow") is not None:
+            flow_sum = (flow_sum or 0) + v["flow"]
+        rows += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
+                 "<td>%s</td><td>%s</td></tr>"
                  % (v.get("name") or name, code, price(v.get("close"), 3), pct(p),
-                    fmt_amt(v.get("amount"))))
+                    fmt_amt(v.get("amount")),
+                    fmt_amt(v.get("scale")),
+                    flow_amt(v.get("flow"))))
     if valid:
         obs = ("今日 %d 只宽基 ETF 中<b>收红 %d 只、收绿 %d 只</b>，成交额合计 <b>%s</b>。"
                % (valid, red, valid - red, fmt_amt(amt_sum)))
+        if flow_sum is not None:
+            obs += ("主力净流入合计 <b>%s</b>（东财口径，含全部资金档位归并）。"
+                    % flow_amt(flow_sum))
     else:
         obs = "宽基 ETF 行情未获取。"
     tpl = """
@@ -540,16 +558,17 @@ def sec3(d):
 <div class="box"><b>先说清哪些是真拿不到、哪些是之前没去拿</b><br>
 ① <b>汇金持仓明细</b>、② <b>宽基 ETF 份额变动</b> —— 属低频披露数据（季报/年报口径），
 免费接口<b>确实不提供</b>，本报告<b>不编造、不推算、不用相近数据替代</b>。<br>
-③ 而这 4 只宽基 ETF 是<b>普通 ETF</b>，收盘价、涨跌幅、成交额<b>可以实时抓到</b>，
-下表为真实行情（不再写死"数据暂未获取"）。</div>
+③ 而这 4 只宽基 ETF 是<b>普通 ETF</b>，收盘价、涨跌幅、成交额、<b>规模</b>、
+<b>主力净流入</b><b>可以实时抓到</b>，下表为真实行情（不再写死"数据暂未获取"）。</div>
 <h3 class="sub">宽基ETF资金动向（真实行情）</h3>
-<table><tr><th>标的</th><th>代码</th><th>收盘</th><th>涨跌幅</th><th>成交额</th></tr>
+<table><tr><th>标的</th><th>代码</th><th>收盘</th><th>涨跌幅</th><th>成交额</th>
+<th>规模</th><th>主力净流入</th></tr>
 {rows}</table>
 <h3 class="sub">今日关键数据</h3>
 <p>{obs}</p>
 <div class="box warn"><b>国家队行为解读</b>：<b>不可做的部分</b>——没有份额数据，
-就<b>无法区分</b>「国家队申购」与「散户抄底」；上面的价格与成交额只是<b>承接强度的代理变量</b>，
-<b>不等于</b>国家队申购行为，<b>不作结论</b>。<br>
+就<b>无法区分</b>「国家队申购」与「散户抄底」；上面的价格、成交额、主力净流入只是
+<b>承接强度的代理变量</b>，<b>不等于</b>国家队申购行为，<b>不作结论</b>。<br>
 <b>可做的部分</b>：若宽基 ETF 出现<b>放量且收红</b>，只能说明宽基有增量承接，
 需与份额数据结合才谈得上国家队动作。</div>
 </section>"""
@@ -578,7 +597,7 @@ def sec4(d):
     # ---------- 国内政策 / 7x24 快讯 ----------
     kx = news.get("kuaixun") or []
     kx_rows = ""
-    for it in kx[:12]:
+    for it in kx[:25]:
         ts = (it.get("time") or "")[-8:]
         kx_rows += ("<tr><td>%s</td><td>%s</td></tr>"
                     % (ts or "—", it.get("title") or "—"))
@@ -586,8 +605,20 @@ def sec4(d):
         kx_rows = ("<tr><td colspan='2' class='na'>%s —— 快讯接口未返回数据</td></tr>"
                    % NA)
     kx_note = ("东方财富 7x24 快讯，日期 <b>%s</b>，按时间倒序取前 %d 条。"
-               % (news.get("kx_date") or NA, min(12, len(kx)))) if kx else \
+               % (news.get("kx_date") or NA, min(25, len(kx)))) if kx else \
               "本节需人工补充（脚本未接入新闻源时如实标注）。"
+
+    # ---------- 同花顺快讯（第二源）----------
+    ths = news.get("ths") or []
+    ths_rows = ""
+    for it in ths[:15]:
+        ts = (it.get("time") or "")[5:16]
+        ths_rows += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+                     % (ts or "—", it.get("title") or "—",
+                        it.get("tag") or "—", it.get("source") or "—"))
+    if not ths_rows:
+        ths_rows = ("<tr><td colspan='4' class='na'>%s —— 同花顺快讯接口未返回数据</td></tr>"
+                    % NA)
 
     # ---------- 海外宏观 ----------
     u10 = g.get("US10Y") or {}
@@ -595,6 +626,18 @@ def sec4(d):
     boj = ("美元兑日元 <b>%s</b>（%s）" % (g_(d, "USDJPY"), gsrc(d, "USDJPY"))
            if (g.get("USDJPY") or {}).get("close") is not None else
            "美元兑日元 <span class='na'>%s</span>" % NA)
+    # BOJ 窗口的两个可得代理指标：
+    #  · 日经225 当日涨跌 = 日本货币政策的市场即时定价（替代拿不到的日本CPI明细）
+    #  · 美债2Y = 短端利率，直接反映市场对加/降息的定价（替代"加息概率"）
+    nk = g.get("NIKKEI") or {}
+    nikkei = ("<b>%.2f</b>（%s）" % (nk["close"], pct(nk.get("pct")))
+              if nk.get("close") is not None else "<span class='na'>%s</span>" % NA)
+    u2 = g.get("US2Y") or {}
+    slope_v = None
+    if u10.get("close") is not None and u2.get("close") is not None:
+        slope_v = u10["close"] - u2["close"]
+    slope = ("<b>%+.2f</b> 个百分点" % slope_v if slope_v is not None
+             else "<span class='na'>%s</span>" % NA)
     us_rows = (
         _orow(d, "美元指数 DXY", "UDI") +
         _orow(d, "美元兑离岸人民币", "USDCNH", 4) +
@@ -616,8 +659,7 @@ def sec4(d):
         _orow(d, "COMEX 白银", "SI00Y") +
         _orow(d, "NYMEX 原油 (WTI)", "CL00Y", 2, note="<b>非 Brent</b>") +
         _orow(d, "<b>Brent 原油</b>", "BRENT", 2) +
-        "<tr><td>LME 铝</td><td class='na'>%s</td><td class='na'>%s</td>"
-        "<td class='na'>%s</td></tr>" % (NA, NA, "免费接口不提供（南山铝业成本端）"))
+        _orow(d, "LME 铝", "LME_AL", 2, note="南山铝业成本端"))
 
     # ---------- 黄金双因子 ----------
     gf = gold_factor(d)
@@ -671,12 +713,16 @@ def sec4(d):
 <table><tr><th>时间</th><th>标题</th></tr>
 {kx_rows}</table>
 <p class="na">{kx_note}</p>
+<h3 class="sub">同花顺快讯（第二源 · 含异动/政策标签）</h3>
+<table><tr><th>时间</th><th>标题</th><th>标签</th><th>来源</th></tr>
+{ths_rows}</table>
 <h3 class="sub">海外宏观（含日元因子）</h3>
-<h3 class="sub">日本央行(BOJ)动态</h3>
 <table><tr><th>指标</th><th>数据</th><th>影响</th></tr>
 <tr><td>USD/JPY</td><td>{boj}</td><td>日元贬值利好出口链、压制进口成本</td></tr>
-<tr><td>市场定价10月加息概率</td><td class="na">{na}</td><td>需第三方终端</td></tr>
-<tr><td>日本7月核心CPI</td><td class="na">{na}</td><td>需第三方终端</td></tr></table>
+<tr><td>日经225（今日）</td><td>{nikkei}</td><td>日本股市对 BOJ 决议的即时定价（通胀明细需第三方终端）</td></tr>
+<tr><td>美债2Y（短端）</td><td>{us2y}</td><td>短端利率即市场对加/降息的定价，替代"加息概率"（概率明细需第三方终端）</td></tr>
+<tr><td>10Y-2Y 利差</td><td>{slope}</td><td>曲线形态：倒挂 / 陡峭化</td></tr></table>
+<h3 class="sub">日本央行(BOJ)动态</h3>
 <p><b>日元因子核心结论</b>：{boj}。<b>10/30 日本央行议息是关键观察窗口</b>，
 当前汇率为 {ujpy}，隔夜美股表现 {ndx_txt}。</p>
 <h3 class="sub">美债与美元</h3>
@@ -701,6 +747,7 @@ def sec4(d):
 <b>10/29 南山铝业三季报</b>、<b>10/31 隆基绿能三季报</b>。</p>
 </section>"""
     return F(tpl, na=NA, kx_rows=kx_rows, kx_note=kx_note, us_rows=us_rows,
+             ths_rows=ths_rows, nikkei=nikkei, us2y=gy(d, "US2Y"), slope=slope,
              us_rows2=(_orow(d, "道琼斯", "DJIA") + _orow(d, "标普500", "SPX") +
                         _orow(d, "纳斯达克综合", "NDX")),
              com_rows=com_rows, gcls=gcls, b_line=b_line, y_line=y_line,

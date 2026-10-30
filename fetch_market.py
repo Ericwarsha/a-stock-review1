@@ -327,22 +327,6 @@ def fetch_fund_flow():
     base = ("https://push2.eastmoney.com/api/qt/clist/get?fid=f62&np=1"
             "&fltt=2&invt=2&fs=m:90+t:2&fields=f12,f14,f62,f3")
 
-    def rows(po, n):
-        out = []
-        for d in _diff(_get("%s&po=%d&pz=%d&pn=1" % (base, po, n))):
-            # f62 可能拿到 "-" —— 东财对无数据板块的占位符，必须先转数字再算。
-            # 2026-10-30 云端 runner 真实踩到：v 是 str，v / 1e8 直接 TypeError，
-            # 整轮抓取崩掉 → market.json 没产出 → 站点被推成错误页。
-            v = _num(d.get("f62"))
-            if v is None:
-                continue
-            out.append({"name": d.get("f14"), "code": d.get("f12"),
-                        "net_yi": round(v / 1e8, 2), "pct": _num(d.get("f3"))})
-        return out
-
-    in_top = rows(1, 5)
-    out_top = rows(0, 5)
-
     # ---- 全量板块字典：一次拉全量（分页上限100，逐页取）----
     # 本机代理会掐 push2 clist，第一页就失败时直接放弃，不再翻页刷屏；
     # 云端 runner 不受该限制，能拿到完整板块字典。
@@ -354,7 +338,10 @@ def fetch_fund_flow():
             break
         for d in diff:
             nm = d.get("f14")
-            v = _num(d.get("f62"))       # 同上："-" 占位符必须先转数字再算
+            # f62 可能拿到 "-" —— 东财对无数据板块的占位符，必须先转数字再算。
+            # 2026-10-30 云端 runner 真实踩到：v 是 str，v / 1e8 直接 TypeError，
+            # 整轮抓取崩掉 → market.json 没产出 → 站点被推成错误页。
+            v = _num(d.get("f62"))
             if not nm or v is None:
                 continue
             boards[nm] = {"name": nm, "code": d.get("f12"),
@@ -362,6 +349,15 @@ def fetch_fund_flow():
         total = (js.get("data") or {}).get("total") if isinstance(js.get("data"), dict) else None
         if total and len(boards) >= total:
             break
+
+    # in_top / out_top 一律由 boards 本地排序得出，不再单独发 po=1 / po=0 两次请求。
+    # 原因（2026-10-30 云端实测）：那两次独立请求里第二次会被东财掐断，
+    # 于是"净流出居前"整块为空，而报告层按"有 in_top 即资金流整体可用"处理，
+    # 算出"流出前5合计 0.00 亿、流出是流入的 0.00 倍"——把未知说成了零。
+    # boards 本来就是全量，多排一次序零成本、零失败点。
+    vals = sorted(boards.values(), key=lambda x: x["net_yi"], reverse=True)
+    in_top = vals[:5]
+    out_top = vals[-5:][::-1] if len(vals) >= 5 else vals[::-1]
 
     return {"in_top": in_top, "out_top": out_top, "boards": boards,
             "universe": len(boards)}
@@ -504,15 +500,17 @@ def fetch_global():
             if not old or old.get("close") is None:
                 out[k] = v
 
-    fill(fetch_sina_hf())       # Brent / WTI / 黄金 / 白银 / 现货金
-    fill(fetch_tx_hf())         # 外盘合约腾讯兜底
+    fill(fetch_sina_hf())       # Brent / WTI / 黄金 / 白银 / 现货金 / 伦铝 / 伦铜
+    fill(fetch_tx_hf())         # 外盘合约腾讯兜底（伦铝/伦铜/现货金的第二层）
     fill(fetch_sina_fx())       # 美元指数 / 离岸在岸人民币 / USDJPY
     fill(fetch_tx_us_index())   # 美股三大指数腾讯兜底
+    fill(fetch_sina_int_index())  # 日经225 + 隔夜美股收盘（新浪 int_*）
     for k, v in fetch_us_treasury().items():   # 美债收益率（东财/新浪都不提供）
         if k in ("US10Y", "US30Y", "US5Y", "US2Y"):
             out[k] = v
     for k in ("BRENT", "US10Y", "US30Y", "US5Y", "US2Y",
-              "USDCNY", "USDJPY", "SPOT_XAU"):
+              "USDCNY", "USDJPY", "SPOT_XAU",
+              "NIKKEI", "DJIA_CLOSE", "NASDAQ_CLOSE", "SPX_CLOSE"):
         out.setdefault(k, None)
     return out
 
@@ -847,14 +845,19 @@ def fetch_broad_etfs():
     """
     ids = [config.secid(c) for c, _ in config.BROAD_ETFS]
     url = ("https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=%s"
-           "&fields=f2,f3,f4,f5,f6,f12,f14,f18" % ",".join(ids))
+           "&fields=f2,f3,f4,f5,f6,f12,f14,f18,f20,f62" % ",".join(ids))
     raw = {}
     for d in _diff(_get(url)):
         close, prev = _px(d.get("f2")), _num(d.get("f18"))
         raw[d.get("f12")] = {"name": d.get("f14"), "close": close,
                              "pct": _pct_of(close, _num(d.get("f3")), prev),
                              "amount": _num(d.get("f6")),
-                             "prev": prev}
+                             "prev": prev,
+                             # f20 = ETF 规模(元)；f62 = 主力净流入(元)。
+                             # 有了规模与主力净流入，第三章才能谈"承接强度"，
+                             # 而不只是"成交了多少"；份额变动仍拿不到。
+                             "scale": _num(d.get("f20")),
+                             "flow": _num(d.get("f62"))}
     miss = [s for s in ids
             if not ((raw.get(s.split(".")[1]) or {}).get("close"))]
     if miss:
@@ -864,13 +867,52 @@ def fetch_broad_etfs():
                          "pct": _pct_of(_px(row["close"]), row["pct"],
                                         row["prev"]),
                          "amount": row["amount"],
-                         "prev": row["prev"]}
+                         "prev": row["prev"],
+                         "scale": None, "flow": None}
     out = {}
     for code, name in config.BROAD_ETFS:
         v = raw.get(code) or {}
         out[code] = {"name": v.get("name") or name, "close": v.get("close"),
                      "pct": v.get("pct"), "amount": v.get("amount"),
-                     "prev": v.get("prev")}
+                     "prev": v.get("prev"),
+                     "scale": v.get("scale"), "flow": v.get("flow")}
+    return out
+
+
+def fetch_sina_int_index():
+    """新浪隔夜指数（int_* 前缀）。
+
+    数据源（2026-10-30 实测）：
+      https://hq.sinajs.cn/list=int_nikkei,int_dji,int_nasdaq,int_sp500
+      格式： var hq_str_int_nikkei="日经指数,44946.64,-408.35,-0.90";
+            字段 0=名称 1=最新 2=涨跌额 3=涨跌幅%
+
+    用途：
+      · NIKKEI —— 日本货币政策的市场即时定价。BOJ 议息窗口里，
+        日本 CPI 明细拿不到（需第三方终端），日经当日涨跌是可得且有效的代理。
+      · DJIA_CLOSE / NASDAQ_CLOSE / SPX_CLOSE —— 隔夜美股收盘，
+        用于"隔夜美股表现"与 BOJ 窗口联动判断。
+    """
+    out = {}
+    codes = [c for c, _k, _n in config.SINA_INT_INDEX]
+    txt = _get_text("https://hq.sinajs.cn/list=" + ",".join(codes), SINA_HDR)
+    if not txt:
+        return out
+    raw = _parse_sina_vars(txt)
+    for code, key, name in config.SINA_INT_INDEX:
+        p = raw.get(code)
+        if not p or len(p) < 4:
+            continue
+        close, chg = _f(p[1]), _f(p[2])
+        if close is None:
+            continue
+        out[key] = {
+            "name": p[0] or name,
+            "close": close,
+            "chg": chg,
+            "pct": _f(p[3]) if len(p) > 3 else None,
+            "src": "新浪财经 int_*",
+        }
     return out
 
 
@@ -880,7 +922,7 @@ def fetch_news(trade_date):
     快讯只取 trade_date 当天的（休市日则回退到最近一天）；公告取最近 3 天，
     按时间倒序，均为真实接口返回，不做改写。
     """
-    out = {"kuaixun": [], "ann": [], "kx_date": None}
+    out = {"kuaixun": [], "ths": [], "ann": [], "kx_date": None}
 
     txt = _get_text("https://newsapi.eastmoney.com/kuaixun/v1/"
                     "getlist_102_ajaxResult_50_1_.html",
@@ -905,6 +947,38 @@ def fetch_news(trade_date):
                     out["kuaixun"] = same or items[:10]
                 else:
                     out["kuaixun"] = items[:12]
+
+    # ---------- 同花顺快讯（第二源）----------
+    # 东财 7x24 以财经头条为主；同花顺这条带"异动/政策/商品"标签，
+    # 对"当日盘面为什么动"补充更直接。2026-10-30 实测 30 条/次可用。
+    txt = _get_text("https://news.10jqka.com.cn/tapp/news/push/stock/"
+                    "?page=1&tag=&track=website&pagesize=30",
+                    {"Referer": "https://news.10jqka.com.cn/"},
+                    enc="utf-8", retries=3)
+    if txt:
+        try:
+            js = json.loads(txt)
+        except ValueError:
+            js = {}
+        ths = []
+        for it in ((js.get("data") or {}).get("list") or []):
+            try:
+                ts = datetime.fromtimestamp(int(it.get("ctime")), CST)
+            except (TypeError, ValueError):
+                continue
+            ths.append({"time": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                        "date": ts.date().isoformat(),
+                        "title": it.get("title"),
+                        "digest": it.get("short"),
+                        "tag": it.get("tag"),
+                        "source": it.get("source"),
+                        "url": it.get("url")})
+        if ths:
+            if trade_date:
+                same = [x for x in ths if x["date"] == trade_date]
+                out["ths"] = same or ths[:10]
+            else:
+                out["ths"] = ths[:12]
 
     codes = ",".join(c for c, *_ in config.PORTFOLIO)
     txt = _get_text("https://np-anotice-stock.eastmoney.com/api/security/ann"
