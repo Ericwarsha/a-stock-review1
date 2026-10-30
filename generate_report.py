@@ -290,7 +290,11 @@ def amt_chg_note(d):
     if is_intraday(d):
         return "盘中口径·未收盘"
     ac = amt_chg(d)
-    return ("较前日 %+.2f%%" % ac) if ac is not None else ("较前日：" + NA)
+    if ac is None:
+        # 前一交易日成交额没回填成功 → 无可比基数。
+        # 这里必须说「无法比较」，不能写成 0% / 缩量（那是把未知说成下降）。
+        return "较前日：无法比较"
+    return "较前日 %+.2f%%" % ac
 
 
 def amt_chg_long(d):
@@ -300,7 +304,8 @@ def amt_chg_long(d):
                 "不与前一交易日全日对比</span>")
     ac = amt_chg(d)
     if ac is None:
-        return "<span class='na'>%s</span>" % NA
+        return ("<span class='na'>无法比较：前一交易日成交额"
+                "数据暂未获取</span>")
     return "较前一交易日 %+.2f%%" % ac
 
 
@@ -881,15 +886,20 @@ def sec4b(d):
         rows += _dim("① 涨跌维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
     # ② 量能维度
     amt, ac = mktotal(d), amt_chg(d)
-    if amt and not is_intraday(d):
-        verdict = "放量" if (ac or 0) > 0 else "缩量"
-        cls = "r" if (ac or 0) > 0 else "g"
-        read = "两市成交额 %s%s" % (fmt_amt(amt),
-                                   ("，环比 %+.2f%%" % ac) if ac is not None else "")
+    if amt and not is_intraday(d) and ac is not None:
+        verdict = "放量" if ac > 0 else "缩量"
+        cls = "r" if ac > 0 else "g"
+        read = "两市成交额 %s%s" % (fmt_amt(amt), "，环比 %+.2f%%" % ac)
         rows += _dim("② 量能维度", read, verdict, cls)
     elif amt:
-        # 盘中：成交额是部分时段累计，与前一日全日不可比 → 不给放量/缩量结论
-        read = "两市成交额 %s（盘中口径，未收盘）" % fmt_amt(amt)
+        # 拿不到可比口径就**不判定**放量/缩量：
+        #   · 盘中 → 成交额只是部分时段累计，与前一日全日不可比
+        #   · 上一交易日成交额没回填成功 → ac 为 None，
+        #     旧写法 (ac or 0) > 0 会把 None 当成 0 → 输出"缩量"，
+        #     这是把"未知"说成了"下降"（2026-10-30 收盘实跑踩到）。
+        why = ("盘中口径，未收盘" if is_intraday(d)
+               else "上一交易日成交额未取到，无法比较")
+        read = "两市成交额 %s（%s）" % (fmt_amt(amt), why)
         rows += _dim("② 量能维度", read, "不判定", "n")
     else:
         rows += _dim("② 量能维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
@@ -902,21 +912,41 @@ def sec4b(d):
         read = ("主力净流入首位 <b>%s</b>（%s）" % (i0["name"], flow_phrase(i0)) if i0
                 else "主力净流入首位 <span class='na'>%s</span>" % NA)
         read += ("；净流出首位 <b>%s</b>（%s）" % (o0["name"], flow_phrase(o0)) if o0 else "")
-        verdict = "资金偏流入" if (i0 and (o0 is None or
-                                          (i0.get("net_yi") or 0) > abs(o0.get("net_yi") or 0))) else "资金偏流出"
+        # 净流入/净流出额缺失 → 不判定资金方向。
+        # 旧写法 (i0.get("net_yi") or 0) 把 None 当 0 → 判成"资金偏流出"，
+        # 同样是"把未知说成某个方向"。
+        ny_i = (i0 or {}).get("net_yi")
+        ny_o = (o0 or {}).get("net_yi")
+        if ny_i is not None and ny_o is not None:
+            verdict = "资金偏流入" if ny_i > abs(ny_o) else "资金偏流出"
+        elif ny_i is not None:
+            verdict = "资金偏流入" if ny_i > 0 else "资金偏流出"
+        elif ny_o is not None and ny_o < 0:
+            verdict = "资金偏流出"
+        else:
+            verdict = "方向不明"
         rows += _dim("③ 资金维度", read, verdict,
-                     "r" if verdict == "资金偏流入" else "g")
+                     "r" if verdict == "资金偏流入"
+                     else ("g" if verdict == "资金偏流出" else "n"))
     else:
         rows += _dim("③ 资金维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
     # ④ 情绪维度
     lp = d.get("limit_pool") or {}
     zt, dt = lp.get("zt"), lp.get("dt")
-    if zt is not None or dt is not None:
-        verdict = "情绪偏热" if (zt or 0) >= (dt or 0) else "情绪偏冷"
+    if zt is not None and dt is not None:
+        verdict = "情绪偏热" if zt >= dt else "情绪偏冷"
+        cls = "r" if verdict == "情绪偏热" else "g"
+        rows += _dim("④ 情绪维度",
+                     "涨停 <b>%s</b> 家，跌停 <b>%s</b> 家" % (zt, dt),
+                     verdict, cls)
+    elif zt is not None or dt is not None:
+        # 冷热要靠涨停/跌停**两边比较**，只取到一边就不能下"偏热/偏冷"的结论
+        # （旧写法 (zt or 0) >= (dt or 0) 会把缺的一边当 0）。
         rows += _dim("④ 情绪维度",
                      "涨停 <b>%s</b> 家，跌停 <b>%s</b> 家"
-                     % (zt if zt is not None else NA, dt if dt is not None else NA),
-                     verdict, "r" if verdict == "情绪偏热" else "g")
+                     % (zt if zt is not None else NA,
+                        dt if dt is not None else NA),
+                     "无法比较", "n")
     else:
         rows += _dim("④ 情绪维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
     # ⑤ 海外维度
@@ -934,20 +964,27 @@ def sec4b(d):
     g = d.get("global") or {}
     ujpy = g.get("USDJPY") or {}
     if ujpy.get("close") is not None:
-        up = (ujpy.get("pct") or 0) > 0
-        jpy_txt = ("美元兑日元 <b>%.3f</b>（%s）" % (ujpy["close"], pct(ujpy.get("pct")))
-                   + ("，较前一日走强（美元兑日元上行）" if up
-                      else "，较前一日走弱（美元兑日元下行）"))
-        jpy_verdict = "日元走弱" if up else "日元走强"
-        jpy_trans = (
-            "日元走弱（美元兑日元上行）时，人民币相对日元走强，"
-            "利好<b>出口链</b>（对南山铝业这类出口占比高的标的是边际利好），"
-            "但抬高<b>进口成本</b>；本组合以国内标的为主，"
-            "<b>该因子不是当前加减仓的主导变量</b>。" if up else
-            "日元走强（美元兑日元下行）时，人民币相对日元走弱，"
-            "<b>出口链的汇兑收益被压缩</b>（南山铝业这类出口占比高的标的边际承压），"
-            "但<b>进口成本下降</b>；本组合以国内标的为主，"
-            "<b>该因子不是当前加减仓的主导变量</b>。")
+        if ujpy.get("pct") is not None:
+            up = ujpy["pct"] > 0
+            jpy_txt = ("美元兑日元 <b>%.3f</b>（%s）" % (ujpy["close"], pct(ujpy["pct"]))
+                       + ("，较前一日走强（美元兑日元上行）" if up
+                          else "，较前一日走弱（美元兑日元下行）"))
+            jpy_verdict = "日元走弱" if up else "日元走强"
+            jpy_trans = (
+                "日元走弱（美元兑日元上行）时，人民币相对日元走强，"
+                "利好<b>出口链</b>（对南山铝业这类出口占比高的标的是边际利好），"
+                "但抬高<b>进口成本</b>；本组合以国内标的为主，"
+                "<b>该因子不是当前加减仓的主导变量</b>。" if up else
+                "日元走强（美元兑日元下行）时，人民币相对日元走弱，"
+                "<b>出口链的汇兑收益被压缩</b>（南山铝业这类出口占比高的标的边际承压），"
+                "但<b>进口成本下降</b>；本组合以国内标的为主，"
+                "<b>该因子不是当前加减仓的主导变量</b>。")
+        else:
+            # 有收盘价但没有涨跌幅 → 不判"走强/走弱"（旧写法 (pct or 0) 会判成走弱）
+            jpy_txt = ("美元兑日元 <b>%.3f</b>（%s）" % (ujpy["close"], NA))
+            jpy_verdict = "方向不明"
+            jpy_trans = ("<span class='na'>%s</span> —— 美元兑日元涨跌幅未取到，"
+                         "本日不判定日元因子方向。" % NA)
     else:
         jpy_txt = "美元兑日元 <span class='na'>%s</span>" % NA
         jpy_verdict = "无数据"
@@ -1048,7 +1085,9 @@ def sec5(d):
     outs = f.get("out_top") or []
     pf = d["portfolio"]
     tot = sum(v.get("mv") or 0 for v in pf.values())
-    yz_w = (pf.get("601106", {}).get("mv") or 0) / tot * 100 if tot else 0
+    _yz_mv = (pf.get("601106") or {}).get("mv")
+    # mv 缺失 → 占比算不出来，不能当 0.00%（那是把未知说成"占比为零"）
+    yz_w = (_yz_mv / tot * 100) if (_yz_mv is not None and tot) else None
     b = breadth_state(d)
 
     rows, n = "", 0
@@ -1072,8 +1111,13 @@ def sec5(d):
     if b and b[1] > b[0]:
         risk += ("<tr><td>⚠️ 指数失真</td><td>下跌 %d 家 &gt; 上涨 %d 家</td>"
                  "<td>指数点位不能作为加仓依据</td></tr>" % (b[1], b[0]))
-    risk += ("<tr><td>⚠️ 中国一重占比过高</td><td>单只占持仓市值 %s%%</td>"
-             "<td>做 T 是降本唯一路径，不可加仓摊薄</td></tr>" % ("%.1f" % yz_w))
+    if yz_w is not None:
+        risk += ("<tr><td>⚠️ 中国一重占比过高</td><td>单只占持仓市值 %.1f%%</td>"
+                 "<td>做 T 是降本唯一路径，不可加仓摊薄</td></tr>" % yz_w)
+    else:
+        risk += ("<tr><td>⚠️ 中国一重占比待核验</td>"
+                 "<td>单只市值<span class='na'>%s</span>，占比无法计算</td>"
+                 "<td>无论占比高低，做 T 是降本唯一路径，不可加仓摊薄</td></tr>" % NA)
     nsi = board_flow(d, "有色金属", "工业金属", "小金属", "贵金属")
     if nsi and nsi.get("net_yi") is not None:
         risk += ("<tr><td>有色资金%s</td><td>%s 板块 %s%s</td>"
@@ -1154,20 +1198,34 @@ def sec6(d):
                          lo=price(v.get("low"), 3) if v.get("low") is not None else NA,
                          t=(trig[c]["note"] if c in trig else "—"),
                          note=DISCIPLINE.get(c, ""))
-    yz_w = (pf.get("601106", {}).get("mv") or 0) / tot * 100 if tot else 0
+    _yz_mv = (pf.get("601106") or {}).get("mv")
+    yz_w = (_yz_mv / tot * 100) if (_yz_mv is not None and tot) else None
+    _miss_mv = [c for c, v in pf.items() if v.get("mv") is None]
+    if yz_w is not None:
+        yzbox = ("<b>集中度风险</b>：中国一重单只占持仓市值 <b>%.1f%%</b>，"
+                 "远超 20%% 上限。按 1 年期计划，只能通过<b>做 T</b>降低成本，"
+                 "<b>不可通过加仓摊薄</b>。" % yz_w)
+    else:
+        yzbox = ("<b>集中度风险</b>：中国一重单只市值<span class='na'>%s</span>，"
+                 "占持仓市值比例<b>无法计算</b>，因而<b>无法核验是否超过 20%% 上限</b>。"
+                 "按 1 年期计划，无论占比高低都只能通过<b>做 T</b>降低成本，"
+                 "<b>不可通过加仓摊薄</b>。" % NA)
+    tot_txt = "%.0f 元" % tot
+    if _miss_mv:
+        tot_txt += "（已统计 %d 只，%d 只市值未取到）" % (len(pf) - len(_miss_mv),
+                                                       len(_miss_mv))
     tpl = """
 <section id="s6"><h2>六、持仓逐一复盘</h2>
 <h3 class="sub">6.1 股票账户（场内，可实时交易）</h3>
 <table><tr><th>标的</th><th>当日表现</th><th>浮盈 / 亏</th><th>占持仓市值</th><th>市值(元)</th><th>预警状态</th></tr>{rows}</table>
-<p><b>持仓市值合计 {tot} 元</b>（按 5 万元总账户计约 {acct}%）。
+<p><b>持仓市值合计 {tot}</b>（按 5 万元总账户计约 {acct}%）。
 黄金 ETF 002611 为场外独立账户，不计入本表。</p>
 {det}
-<div class="box risk"><b>集中度风险</b>：中国一重单只占持仓市值 <b>{yzw}%</b>，
-远超 20% 上限。按 1 年期计划，只能通过<b>做 T</b>降低成本，<b>不可通过加仓摊薄</b>。</div>
+<div class="box risk">{yzbox}</div>
 </section>"""
-    return F(tpl, rows=rows, tot="%.0f" % tot,
+    return F(tpl, rows=rows, tot=tot_txt,
              acct=("%.1f" % (tot / 50000 * 100) if tot else NA),
-             det=det, yzw="%.1f" % yz_w)
+             det=det, yzbox=yzbox)
 
 
 def _tp_tier(rate):
@@ -1810,7 +1868,9 @@ def sec10(d):
     if al.get("close") is not None:
         alc = al["close"]
         alp = al.get("pct")
-        cls = "up" if (alp or 0) > 0 else ("down" if (alp or 0) < 0 else "flat")
+        # 涨跌幅缺失 → 不给颜色/方向（旧的 (alp or 0) 会判成"持平"）
+        cls = ("up" if alp > 0 else ("down" if alp < 0 else "flat")) \
+            if alp is not None else "na"
         al_row = ("<tr><td>LME 铝价</td><td>%.2f 美元/吨</td>"
                   "<td class='%s'>%s</td></tr>" % (alc, cls, pct(alp)))
         al_note = "（%s）" % (al.get("src") or "新浪财经 hf_AHD")
@@ -2006,7 +2066,7 @@ def render(d):
          ('<span class="na">盘中口径·未收盘</span>') if is_intraday(d)
          else (('<span class="%s">较前日 %+.2f%%</span>'
                 % ("up" if ac > 0 else "down", ac)) if ac is not None
-               else '<span class="na">较前日：' + NA + '</span>')),
+               else '<span class="na">较前日：无法比较</span>')),
         ("s2", "涨跌家数", bd_v, bd_d),
         ("s8", "加仓触发", "%d / %d" % (hit, tot),
          ('<span class="up">盘中另触及 %d 项</span>' % (ihit - hit))
