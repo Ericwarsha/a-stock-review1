@@ -86,7 +86,8 @@ table{font-size:12px;display:block;overflow-x:auto;white-space:nowrap}
 
 NAV = [("s1", "一、今日A股行情"), ("s2", "二、资金面"), ("s3", "三、国家队/ETF"),
        ("s4", "四、消息面"), ("s4b", "四·补、新因子预留位"), ("s5", "五、涨跌成因"),
-       ("s6", "六、持仓逐一复盘"), ("s7", "七、此前推论验证"),
+       ("s6", "六、持仓逐一复盘"), ("s6b", "六·补、基金账户"),
+       ("s7", "七、此前推论验证"),
        ("s8", "八、策略调整建议"), ("s9", "九、商业航天"),
        ("s10", "十、低估板块跟踪"), ("s11", "附录·关键数据汇总")]
 
@@ -263,6 +264,46 @@ def amt_chg(d):
     return (cur - prev) / prev * 100
 
 
+def is_intraday(d):
+    """快照是否为**盘中**口径。
+
+    判定：行情日期 == 生成日期，且生成时刻 < 15:05。
+    盘中成交额只是当日已成交部分的累计，与「前一交易日全日」不可比 ——
+    拿它算环比会得出「缩量 -43%」这种假结论（实测 10/30 10:52 盘中：
+    半日 8746 亿 vs 前日全日 15565 亿 → -43.8%，实际全天并未如此缩量）。
+    """
+    td = d.get("trade_date")
+    ga = d.get("generated_at") or ""
+    if not td or not ga:
+        return False
+    try:
+        g = datetime.fromisoformat(ga)
+    except Exception:
+        return False
+    if g.date().isoformat() != td:
+        return False
+    return (g.hour, g.minute) < (15, 5)
+
+
+def amt_chg_note(d):
+    """成交额环比的短标注（表格备注列用）。"""
+    if is_intraday(d):
+        return "盘中口径·未收盘"
+    ac = amt_chg(d)
+    return ("较前日 %+.2f%%" % ac) if ac is not None else ("较前日：" + NA)
+
+
+def amt_chg_long(d):
+    """成交额环比的长说明（正文用）。"""
+    if is_intraday(d):
+        return ("<span class='na'>盘中口径（未收盘），"
+                "不与前一交易日全日对比</span>")
+    ac = amt_chg(d)
+    if ac is None:
+        return "<span class='na'>%s</span>" % NA
+    return "较前一交易日 %+.2f%%" % ac
+
+
 def boards(d):
     """全板块资金流字典（历史口径专有；实时口径缺失时为空）。"""
     return (d.get("fund_flow") or {}).get("boards") or {}
@@ -314,6 +355,61 @@ def tone(d, code):
 
 
 # ------------------------------------------------------------ 章节
+def valuation_dual(yield_v, pe_pct, rule):
+    """低估双条件判定（用户 2026-10-30 指令）：股息率 ≥ 阈值 AND PE历史分位 ≤ 阈值。
+
+    返回 (状态, 是否命中, 说明)
+      · 两腿都过 → "低估·双条件命中"
+      · 任一腿缺数据 → "条件不全"（**不猜、不用别的指数的数凑**）
+      · 都不过 → "不低估（两腿均未过）"
+    """
+    if yield_v is None:
+        return "条件不全", False, "股息率缺数据"
+    if pe_pct is None:
+        return "条件不全", False, "PE分位缺数据"
+    y_ok = yield_v >= rule["yield_min"]
+    p_ok = pe_pct <= rule["pe_pct_max"]
+    if y_ok and p_ok:
+        return "低估·双条件命中", True, ""
+    if not y_ok and not p_ok:
+        return "不低估（两腿均未过）", False, ""
+    if not y_ok:
+        return "不低估（股息率未达阈值）", False, ""
+    return "不低估（PE分位偏高）", False, ""
+
+
+def rel_streak(closes, bench):
+    """相对上证的「连续 N 日跑赢/跑输」判定。
+
+    closes：标的收盘序列（升序 [{"date","close"}]）
+    bench ：上证收盘序列（升序）
+    返回 (连续天数, 方向) —— 方向 +1 跑赢 / -1 跑输 / 0 无法判定。
+    逐日比较「标的日涨跌幅 vs 上证日涨跌幅」，从最新一根往前数连续同向的天数。
+    """
+    if not closes or not bench:
+        return 0, 0
+    bmap = {b["date"]: b["close"] for b in bench}
+    signs = []
+    for i in range(1, len(closes)):
+        d, c = closes[i]["date"], closes[i]["close"]
+        p = closes[i - 1]["close"]
+        bd, bp = bmap.get(d), bmap.get(closes[i - 1]["date"])
+        if bd is None or bp is None or not p or not bp:
+            continue
+        re_, rb = c / p - 1, bd / bp - 1
+        signs.append(1 if re_ > rb else (-1 if re_ < rb else 0))
+    if not signs or signs[-1] == 0:
+        return 0, 0
+    last = signs[-1]
+    n = 0
+    for s in reversed(signs):
+        if s == last:
+            n += 1
+        else:
+            break
+    return n, last
+
+
 def sec1(d):
     ix = d["indexes"]
     rows = ""
@@ -352,7 +448,7 @@ def sec1(d):
         bro = ("<tr><td>上涨家数（沪深）</td><td>%d</td></tr>"
                "<tr><td>下跌家数（沪深）</td><td>%d</td></tr>"
                "<tr><td>平盘家数（沪深）</td><td>%d</td></tr>"
-               "<tr><td>跌/涨比</td><td><b>%s : 1</b></td>"
+               "<tr><td>跌/涨比</td><td><b>%s : 1</b></td></tr>"
                % (up, dn, fl, ratio))
     else:
         core = ("<b>宽基数据已核实，个股赚钱效应无法核实</b>：上证 %s、深成 %s、"
@@ -393,7 +489,7 @@ def sec1(d):
 <h3 class="sub">指数表现</h3>
 <table><tr><th>指数</th><th>收盘点位</th><th>涨跌幅</th></tr>{rows}</table>
 <h3 class="sub">量能</h3>
-<p>两市成交额：<b>{amt} 亿元</b>（约 {wan} 万亿）。较前一交易日：{ac}</p>
+<p>两市成交额：<b>{amt} 亿元</b>（约 {wan} 万亿）。{ac_txt}</p>
 <h3 class="sub">涨跌结构</h3>
 <table><tr><th>项目</th><th>数值</th></tr>{bro}
 <tr><td>涨停</td><td>{zt}</td></tr>
@@ -404,9 +500,7 @@ def sec1(d):
 <p>{style}</p>
 </section>"""
     return F(tpl, rows=rows, amt=yi(amt), wan=("%.2f" % (amt / 1e12) if amt else NA),
-             ac=('<span class="%s">%+.2f%%</span>'
-                 % ("up" if ac > 0 else "down", ac)) if ac is not None
-                else '<span class="na">%s</span>' % NA,
+             ac_txt=amt_chg_long(d),
              bro=bro,
              zt=lp.get("zt") if lp.get("zt") is not None else NA,
              dt=lp.get("dt") if lp.get("dt") is not None else NA,
@@ -490,7 +584,6 @@ def sec2(d):
 <tr><td>跌/涨家数比</td><td>{ratio2}</td><td>{bd_note}</td></tr>
 <tr><td>涨停家数</td><td>{zt}</td><td><span class="tag b">接口可回溯</span></td></tr>
 <tr><td>跌停家数</td><td>{dt}</td><td><span class="tag b">接口可回溯</span></td></tr></table>
-<p><b>北向资金</b>：<span class="na">{na}</span>（制度性原因，仅成交额口径可查，非遗漏）。</p>
 <div class="box warn"><b>操作纪律</b><br>
 不新开仓、不追高；仅按第八章既定预警价执行分批加仓，不因单日资金流向改变计划。</div>
 </section>"""
@@ -555,11 +648,8 @@ def sec3(d):
         obs = "宽基 ETF 行情未获取。"
     tpl = """
 <section id="s3"><h2>三、国家队 / 汇金与宽基ETF持仓数据</h2>
-<div class="box"><b>先说清哪些是真拿不到、哪些是之前没去拿</b><br>
-① <b>汇金持仓明细</b>、② <b>宽基 ETF 份额变动</b> —— 属低频披露数据（季报/年报口径），
-免费接口<b>确实不提供</b>，本报告<b>不编造、不推算、不用相近数据替代</b>。<br>
-③ 而这 4 只宽基 ETF 是<b>普通 ETF</b>，收盘价、涨跌幅、成交额、<b>规模</b>、
-<b>主力净流入</b><b>可以实时抓到</b>，下表为真实行情（不再写死"数据暂未获取"）。</div>
+<div class="box">本章口径：这 4 只宽基 ETF 是<b>普通 ETF</b>，收盘价、涨跌幅、成交额、<b>规模</b>、
+<b>主力净流入</b><b>可以实时抓到</b>，下表为真实行情。</div>
 <h3 class="sub">宽基ETF资金动向（真实行情）</h3>
 <table><tr><th>标的</th><th>代码</th><th>收盘</th><th>涨跌幅</th><th>成交额</th>
 <th>规模</th><th>主力净流入</th></tr>
@@ -784,12 +874,16 @@ def sec4b(d):
         rows += _dim("① 涨跌维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
     # ② 量能维度
     amt, ac = mktotal(d), amt_chg(d)
-    if amt:
+    if amt and not is_intraday(d):
         verdict = "放量" if (ac or 0) > 0 else "缩量"
         cls = "r" if (ac or 0) > 0 else "g"
         read = "两市成交额 %s%s" % (fmt_amt(amt),
                                    ("，环比 %+.2f%%" % ac) if ac is not None else "")
         rows += _dim("② 量能维度", read, verdict, cls)
+    elif amt:
+        # 盘中：成交额是部分时段累计，与前一日全日不可比 → 不给放量/缩量结论
+        read = "两市成交额 %s（盘中口径，未收盘）" % fmt_amt(amt)
+        rows += _dim("② 量能维度", read, "不判定", "n")
     else:
         rows += _dim("② 量能维度", "<span class='na'>%s</span>" % NA, "无数据", "n")
     # ③ 资金维度
@@ -876,9 +970,6 @@ def sec4b(d):
 <h3 class="sub">ETF持仓数据</h3>
 <table><tr><th>宽基ETF</th><th>收盘</th><th>涨跌幅</th><th>成交额</th></tr>
 {e_rows}</table>
-<div class="box"><b>数据边界</b>：上表为宽基 ETF <b>真实行情</b>（收盘/涨跌幅/成交额）。
-<b>份额变动与机构持仓明细</b>属低频披露数据，免费接口<b>不提供</b>，
-本块<b>不推算、不替代</b>；需要该口径请走季报/年报或第三方终端。</div>
 </section>"""
     return F(tpl, dims=rows, jpy_txt=jpy_txt, jpy_verdict=jpy_verdict,
              jpy_trans=jpy_trans, e_rows=e_rows)
@@ -904,8 +995,7 @@ def sec11(d):
                                   pct((ix.get("399001") or {}).get("pct")))) +
         row("创业板指", "%s（%s）" % (price(cy.get("close")), pct(cy.get("pct"))),
             "科创50 %s" % pct((ix.get("000688") or {}).get("pct"))) +
-        row("两市成交额", fmt_amt(amt),
-            "较前日 %+.2f%%" % ac if ac is not None else "较前日：%s" % NA) +
+        row("两市成交额", fmt_amt(amt), amt_chg_note(d)) +
         row("现货黄金", ("%.2f 美元（%s）" % (g["SPOT_XAU"]["close"], pct(g["SPOT_XAU"].get("pct"))))
             if (g.get("SPOT_XAU") or {}).get("close") is not None else NA,
             "COMEX 黄金 %s" % g_(d, "GC00Y")) +
@@ -920,9 +1010,19 @@ def sec11(d):
             "官方曲线 %s ｜ 美30Y %s" % ((g.get("US10Y") or {}).get("date") or NA,
                                       gy(d, "US30Y"))) +
         row("主力净流入", (flow_phrase(top_in) if top_in else NA),
-            ("板块：%s" % top_in["name"]) if top_in else "") +
-        row("北向资金", "<span class='na'>%s</span>" % NA,
-            "交易所已停止实时披露，无免费口径"))
+            ("板块：%s" % top_in["name"]) if top_in else ""))
+
+    # 基金账户汇总（附录加一行，两账户合并看）
+    f_inv = sum(f2[4] for f2 in config.FUND_ACCOUNT)
+    f_gain = sum(f2[5] for f2 in config.FUND_ACCOUNT)
+    f_rate = (f_gain / f_inv * 100) if f_inv else None
+    rows += ("<tr><td>基金账户·总投入</td><td>%.2f 元</td>"
+             "<td>25 只场外，累计收益 %+.2f 元（%s）</td></tr>"
+             % (f_inv, f_gain,
+                ("%+.2f%%" % f_rate) if f_rate is not None else NA))
+    rows += ("<tr><td>基金账户·当前市值</td><td>%.2f 元</td>"
+             "<td>＝总投入 + 累计收益（App 口径快照）</td></tr>"
+             % (f_inv + f_gain))
 
     tpl = """
 <section id="s11"><h2>附录：关键数据汇总</h2>
@@ -1045,11 +1145,12 @@ def sec6(d):
                 ).format(n=v["name"], c=c, px=price(v["close"]), p=pct(v["pct"]),
                          pn=("%+.2f%%" % v["pnl_pct"]) if v["pnl_pct"] is not None else NA,
                          lo=price(v.get("low"), 3) if v.get("low") is not None else NA,
-                         t=(trig[c]["note"] if c in trig else NA),
+                         t=(trig[c]["note"] if c in trig else "—"),
                          note=DISCIPLINE.get(c, ""))
     yz_w = (pf.get("601106", {}).get("mv") or 0) / tot * 100 if tot else 0
     tpl = """
 <section id="s6"><h2>六、持仓逐一复盘</h2>
+<h3 class="sub">6.1 股票账户（场内，可实时交易）</h3>
 <table><tr><th>标的</th><th>当日表现</th><th>浮盈 / 亏</th><th>占持仓市值</th><th>市值(元)</th><th>预警状态</th></tr>{rows}</table>
 <p><b>持仓市值合计 {tot} 元</b>（按 5 万元总账户计约 {acct}%）。
 黄金 ETF 002611 为场外独立账户，不计入本表。</p>
@@ -1060,6 +1161,132 @@ def sec6(d):
     return F(tpl, rows=rows, tot="%.0f" % tot,
              acct=("%.1f" % (tot / 50000 * 100) if tot else NA),
              det=det, yzw="%.1f" % yz_w)
+
+
+def _tp_tier(rate):
+    """场外基金止盈档位：累计收益率 → (档位阈值, 应减比例)。未触发返回 None。"""
+    if rate is None:
+        return None
+    hit = None
+    for thr, frac in config.FUND_TAKE_PROFIT:
+        if rate >= thr:
+            hit = (thr, frac)
+    return hit
+
+
+def sec6b(d):
+    """六·补、基金账户（场外申赎口径 · 25 只）。
+
+    数据来源分层：
+      · 投入资金 / 累计收益 → 用户 App 汇总快照（Excel「9-基金配置」R14:R38，基准日 2026-10-24）
+      · 最新单位净值 / 净值日期 / 当日净值涨跌 → 天天基金历史净值（当次真实抓取）
+    ⚠️ 口径限制：25 只的**份额**未记录 → 无法把「当日净值涨跌」折算成持仓金额变动，
+       因此本节只给净值层面的真实涨跌，不编造当日盈亏金额。
+    """
+    fnav = d.get("fund_nav") or {}
+    rows = ""
+    tot_inv = tot_gain = 0.0
+    win = lose = flat = 0
+    tp_rows = ""
+    theme = {}
+    typeagg = {}
+    nav_dates = set()
+    for code, name, th, ftype, inv, gain, proxy, direction in config.FUND_ACCOUNT:
+        tot_inv += inv
+        tot_gain += gain
+        if gain > 0:
+            win += 1
+        elif gain < 0:
+            lose += 1
+        else:
+            flat += 1
+        total = inv + gain
+        rate = (gain / inv * 100) if inv else None
+        nav = fnav.get(code) or {}
+        if nav.get("date"):
+            nav_dates.add(nav["date"])
+        t = _tp_tier(rate)
+        if t:
+            thr, frac = t
+            cut = total * frac
+            tp_rows += ("<tr><td>{n}</td><td>{c}</td><td>{r}</td><td>{f}</td>"
+                        "<td>{m}</td><td><span class='tag r'>减仓 {pp}</span></td></tr>"
+                        .format(n=name, c=code, r="%+.2f%%" % rate,
+                                f="%.0f%%" % (frac * 100), m="%.0f" % cut,
+                                p=frac, pp="%.0f%%" % (frac * 100)))
+        else:
+            tp_rows += ("<tr><td>{n}</td><td>{c}</td><td>{r}</td><td>—</td>"
+                        "<td>—</td><td><span class='tag n'>未触发</span></td></tr>"
+                        .format(n=name, c=code, r=("%+.2f%%" % rate) if rate is not None else NA))
+        rows += ("<tr><td><b>{n}</b><br><span class='na'>{c}</span></td><td>{th}</td>"
+                 "<td>{ty}</td><td>{inv}</td><td>{g}</td><td>{r}</td><td>{nav}</td>"
+                 "<td>{nd}</td><td>{np}</td><td>{mv}</td><td>{tp}</td></tr>"
+                 ).format(n=name, c=code, th=th, ty=ftype,
+                          inv="%.2f" % inv, g="%+.2f" % gain,
+                          r=("%+.2f%%" % rate) if rate is not None else NA,
+                          nav=("%.4f" % nav["nav"]) if nav.get("nav") else NA,
+                          nd=nav.get("date") or NA,
+                          np=(("%+.2f%%" % nav["pct"]) if nav.get("pct") is not None
+                              else '<span class="na">—</span>'),
+                          mv="%.2f" % total,
+                          tp=("<span class='tag r'>+%.0f%%档 减%.0f%%</span>"
+                              % (t[0], t[1] * 100)) if t
+                          else "<span class='tag n'>未触发</span>")
+        a = theme.setdefault(th, [0.0, 0.0, 0])
+        a[0] += inv
+        a[1] += gain
+        a[2] += 1
+        b = typeagg.setdefault(ftype, [0.0, 0.0, 0])
+        b[0] += inv
+        b[1] += gain
+        b[2] += 1
+
+    theme_rows = ""
+    for th, (inv, gain, n) in sorted(theme.items(), key=lambda x: -x[1][0]):
+        r = (gain / inv * 100) if inv else None
+        theme_rows += ("<tr><td>{th}</td><td>{n}</td><td>{inv}</td><td>{g}</td>"
+                       "<td>{r}</td></tr>"
+                       .format(th=th, n=n, inv="%.2f" % inv, g="%+.2f" % gain,
+                               r=("%+.2f%%" % r) if r is not None else NA))
+    type_rows = ""
+    for ty, (inv, gain, n) in sorted(typeagg.items(), key=lambda x: -x[1][0]):
+        r = (gain / inv * 100) if inv else None
+        type_rows += ("<tr><td>{ty}</td><td>{n}</td><td>{inv}</td><td>{g}</td>"
+                      "<td>{r}</td></tr>"
+                      .format(ty=ty, n=n, inv="%.2f" % inv, g="%+.2f" % gain,
+                              r=("%+.2f%%" % r) if r is not None else NA))
+
+    overall = (tot_gain / tot_inv * 100) if tot_inv else None
+    nav_note = ("、".join(sorted(nav_dates)) if nav_dates else NA)
+
+    tpl = """
+<section id="s6b"><h2>六·补、基金账户（场外申赎口径 · 25 只）</h2>
+<div class="box"><b>账户概况</b>：总投入 <b>{tinv}</b> 元｜累计收益 <b>{tgain}</b> 元｜
+整体收益率 <b>{overall}</b>｜{win} 盈 / {lose} 亏 / {flat} 平｜
+本次抓取到的净值日期：{nav_note}。<br>
+<span class='na'>投入与累计收益为 App 汇总快照（基准日 2026-10-24）；单位净值、当日净值涨跌为天天基金最新披露值（真实抓取）。</span></div>
+<h3 class="sub">25 只明细</h3>
+<table><tr><th>基金</th><th>跟踪主题</th><th>申赎类型</th><th>投入资金(元)</th>
+<th>累计收益(元)</th><th>收益率</th><th>最新净值</th><th>净值日期</th>
+<th>净值当日涨跌</th><th>市值(元)</th><th>止盈档位</th></tr>{rows}</table>
+<h3 class="sub">主题聚合</h3>
+<table><tr><th>跟踪主题</th><th>只数</th><th>投入资金(元)</th><th>累计收益(元)</th><th>收益率</th></tr>{theme_rows}</table>
+<h3 class="sub">申赎类型聚合</h3>
+<table><tr><th>申赎类型</th><th>只数</th><th>投入资金(元)</th><th>累计收益(元)</th><th>收益率</th></tr>{type_rows}</table>
+<h3 class="sub">止盈档位执行清单</h3>
+<table><tr><th>基金</th><th>代码</th><th>累计收益率</th><th>档位</th><th>应减市值(元)</th><th>状态</th></tr>{tp_rows}</table>
+<div class="box warn"><b>场外口径铁律</b>：25 只全部场外申赎，<b>盘中无报价、无盘中止损</b>；
+申赎按当日收盘净值成交，<b>15:00 为当日截止线</b>，之后提交按下一交易日净值成交。
+境内 T+1 确认、赎回款 T+1 到账；QDII T+2~T+3 确认、赎回款 T+3~T+7。
+⇒ 减仓资金<b>不可当日再投</b>（不做跨品种赎回重投）。
+<br><b>本节限制</b>：25 只的<b>份额未记录</b>，无法把「当日净值涨跌」折算成持仓金额变动
+（QDII 净值还要滞后 2~3 天）—— 本节只给净值层面的真实涨跌，不编造当日盈亏金额。</div>
+</section>"""
+    return F(tpl, rows=rows, theme_rows=theme_rows, type_rows=type_rows,
+             tp_rows=tp_rows, nav_note=nav_note,
+             tinv="%.2f" % tot_inv, tgain="%+.2f" % tot_gain,
+             overall=("%+.2f%%" % overall) if overall is not None else NA,
+             win=win, lose=lose, flat=flat)
 
 
 def sec7(d):
@@ -1255,7 +1482,8 @@ def sec8(d):
             if x not in hits:
                 hits.append(x)
         hits.sort(reverse=True)
-        amt_txt = ladder_amount_txt(r, hits) if hits else NA
+        # 未触发 = 不适用（没有档位被跌穿），不是"数据暂未获取" → 用破折号
+        amt_txt = ladder_amount_txt(r, hits) if hits else "—"
         rstat.append((r, st, amt_txt))
     tr = "".join(
         "<tr><td>{n}</td><td>{k}</td><td>{c}</td><td>{lo}</td><td>{l}</td>"
@@ -1409,17 +1637,17 @@ def sec9(d):
     每天输出同一段「数据暂未获取」。现在改成数据驱动：
       · 持仓记录 ← config.AEROSPACE_FUND（015790 永赢高端装备智选混合C）
       · 代理 ETF 当日表现 ← 当次抓取的真实行情（sh512660 军工ETF国泰）
-      · 四项产业指标（发射日历/复用进度/组网速率/一级市场）仍无免费数据源，
-        继续如实标注，不编造
+      · 发射日历 ← NextSpaceflight 公开 API（真实抓取）
     """
     f = config.AEROSPACE_FUND
     shares = f["shares"]
     amt = f["amount"]
     nav = (amt / shares) if shares else None
-    sold = f["sold_shares"]
-    left_sh = shares - sold
-    left_amt = (left_sh * nav) if (nav and left_sh >= 0) else None
-    sold_amt = (sold * nav) if nav else None
+    # 净值优先用当次抓取的真实净值（天天基金），拿不到才回落到「市值 ÷ 份额」
+    _fn = (d.get("fund_nav") or {}).get(f["code"]) or {}
+    if _fn.get("nav"):
+        nav = _fn["nav"]
+    nav_date = _fn.get("date") or f.get("nav_date") or NA
 
     # 代理 ETF（sh512660）当日表现：军工ETF 不在 config.PORTFOLIO 里，
     # 由 fetch 层单独抓（data["proxy_etf"]）；拿不到就如实标注，不猜。
@@ -1427,26 +1655,46 @@ def sec9(d):
     if not px:
         px = None
 
+    # 发射日历（NextSpaceflight 公开 API，2026-10-30 接入）
+    # 原先四项指标全部写「需专用数据源」，实测这一项有公开免费源。
+    # 口径：全球发射日历（商业/军用/科研混合），只作产业活跃度观测，
+    #      不等同于「中国商业航天发射计划」—— 报告里照实标注，不偷换概念。
+    cal = d.get("launches") or []
+    if cal:
+        cal_state = "已接入 · 近端 %d 次" % len(cal)
+        cal_note = "NextSpaceflight 全球发射日历"
+        cal_rows = ""
+        for it in cal:
+            cal_rows += ("<tr><td>%s</td><td>%s</td><td>%s</td></tr>"
+                         % (it.get("date") or NA, it.get("name") or NA,
+                            it.get("status") or NA))
+    else:
+        cal_state = "<span class='na'>%s</span>" % NA
+        cal_note = "NextSpaceflight 接口未返回"
+        cal_rows = ""
+
     tpl = """
 <section id="s9"><h2>九、商业航天 / 太空产业 —— 长期观察</h2>
 <h3 class="sub">方向持仓记录</h3>
-<table><tr><th>标的</th><th>代码</th><th>账户市值(元)</th><th>份额</th>
-<th>单位净值</th><th>今日操作</th><th>剩余份额</th><th>剩余市值(元)</th></tr>
+<table><tr><th>标的</th><th>代码</th><th>持有市值(元)</th><th>持有份额</th>
+<th>最新单位净值</th><th>投入本金(元)</th><th>成本单价</th><th>持有收益(元)</th></tr>
 <tr><td>{fname}</td><td>{fcode}</td><td>{amount}</td><td>{shares}</td>
-<td>{nav}</td><td>{sold}</td><td>{left_sh}</td><td>{left_amt}</td></tr></table>
+<td>{nav}</td><td>{cost_amt}</td><td>{cost}</td><td>{gain}</td></tr></table>
 <p class="na">场外基金 · {settle}。代理 ETF：{proxy} {proxy_name} —— 当日 {proxy_px}。
 方向归属：{note}</p>
-<div class="box"><b>口径已确认</b>：份额 {shares} 为<b>卖出前</b>总份额，金额 {amount} 为<b>市值</b>（非投入本金）。
-经天天基金历史净值核对，{nav_date} 单位净值 <b>{nav_raw}</b> 元/份，{shares} × {nav_raw} = {amount} 逐位吻合。
-今日卖出 {sold_sh} 份 ≈ <b>{sold_amt} 元</b>（T日收盘净值成交、T+1确认），剩余 <b>{left_sh} 份</b> ≈ <b>{left_amt} 元</b>。</div>
-<h3 class="sub">今日四项指标速报</h3>
+<div class="box"><b>口径已确认</b>：持有市值 {amount} 元、持有收益 {gain} 元（用户 2026-10-30 提供）；
+投入本金 = 市值 − 持有收益 = <b>{cost_amt} 元</b>；份额 {shares} 份 = {amount} ÷ {nav_date} 单位净值 <b>{nav_raw}</b> 元/份
+（天天基金历史净值核对，{shares} × {nav_raw} = {amount} 逐位吻合）；成本单价 = {cost_amt} ÷ {shares} = <b>{cost}</b> 元/份。
+本基金同时出现在「六·补、基金账户」的 25 只明细里。</div>
+<h3 class="sub">今日产业指标速报</h3>
 <table><tr><th>指标</th><th>状态</th><th>说明</th></tr>
-<tr><td><b>发射日历</b></td><td class="na">{na}</td><td>需专用数据源</td></tr>
-<tr><td><b>复用进度</b></td><td class="na">{na}</td><td>需专用数据源</td></tr>
-<tr><td><b>组网速率</b></td><td class="na">{na}</td><td>需专用数据源</td></tr>
-<tr><td><b>一级市场</b></td><td class="na">{na}</td><td>需专用数据源</td></tr></table>
-<div class="box warn">本章为长期产业跟踪，四项产业指标<b>免费接口确实不提供</b>，
-本报告<b>不编造</b>；但方向持仓与代理 ETF 当日表现<b>已接真实数据</b>，每日更新。</div>
+<tr><td><b>发射日历</b></td><td>{cal_state}</td><td>{cal_note}</td></tr></table>
+<div class="box warn">本章为长期产业跟踪，<b>发射日历已接真实数据</b>（下表，NextSpaceflight 公开 API）。
+发射日历口径为<b>全球</b>任务（商业/军用/科研混合），只作产业活跃度观测，
+<b>不等同于</b>「中国商业航天发射计划」——方向归属以持仓与代理 ETF 为准。</div>
+<h3 class="sub">近期全球发射安排（NextSpaceflight，北京时间）</h3>
+<table><tr><th>时间</th><th>任务</th><th>状态</th></tr>
+{cal_rows}</table>
 <h3 class="sub">配置框架状态</h3>
 <table><tr><th>层级</th><th>目标仓位</th><th>当前状态</th></tr>
 <tr><td>第一层 指数化底仓</td><td>50-60%</td><td><span class="tag n">未建立</span></td></tr>
@@ -1454,16 +1702,15 @@ def sec9(d):
 <tr><td>第三层 事件仓</td><td>≤10-15%</td><td><span class="tag n">未建立</span></td></tr></table>
 </section>"""
     return F(tpl, na=NA,
+             cal_state=cal_state, cal_note=cal_note, cal_rows=cal_rows,
              fname=f["name"], fcode=f["code"],
              amount="%.2f" % amt, shares="%.2f" % shares,
              nav=("%.4f 元/份" % nav) if nav else NA,
-             nav_raw=("%.4f" % f["nav"]) if f.get("nav") else ("%.4f" % nav if nav else NA),
-             nav_date=f.get("sold_date") or NA,
-             sold=("卖出 %.2f 份" % sold),
-             left_sh=("%.2f" % left_sh),
-             left_amt=("%.2f" % left_amt) if left_amt is not None else NA,
-             sold_amt=("%.2f" % sold_amt) if sold_amt is not None else NA,
-             sold_sh=("%.2f" % sold),
+             nav_raw=("%.4f" % nav) if nav else NA,
+             nav_date=nav_date,
+             cost_amt="%.2f" % f.get("cost_amount", 0),
+             cost=("%.4f" % f["cost"]) if f.get("cost") else NA,
+             gain=("%+.2f" % f.get("gain", 0)),
              settle=f["settle"], proxy=f["proxy"], proxy_name=f["proxy_name"],
              proxy_px=("%s（%s）" % (price(px.get("close"), 3), pct(px.get("pct")))
                        if px else "<span class='na'>%s（代理ETF未在监控清单）</span>" % NA),
@@ -1483,14 +1730,26 @@ def sec10(d):
                           g=pct(v.get("pct"))))
 
     # 【监控节奏状态行】：模板末尾的独立小节，四只监控 ETF 的最新价 + 相对强弱
+    # ＋ 连续相对强弱（日K逐日对比上证，从最新一根往前数连续同向天数）
+    mks = d.get("monitor_klines") or {}
+    bench = (mks.get("000001") or {}).get("closes") or []
     pace_rows = ""
     for c, _ in config.WATCH_ETFS:
         v = we.get(c)
         if not v:
             continue
-        pace_rows += ("<tr><td>{n} {c}</td><td>{p}</td><td>{t}</td></tr>"
+        streak_txt = "—"
+        cl = (mks.get(c) or {}).get("closes") or []
+        if bench and cl:
+            n, direction = rel_streak(cl, bench)
+            if n >= 1:
+                if direction > 0:
+                    streak_txt = ("<span class='up'>连续 %d 日跑赢上证</span>" % n)
+                else:
+                    streak_txt = ("<span class='down'>连续 %d 日跑输上证</span>" % n)
+        pace_rows += ("<tr><td>{n} {c}</td><td>{p}</td><td>{t}</td><td>{s}</td></tr>"
                       .format(n=v["name"], c=c, p=price(v.get("close"), 3),
-                              t=tone(d, c).rstrip("。")))
+                              t=tone(d, c).rstrip("。"), s=streak_txt))
 
     # 有色信号检查：按板块真实资金流结论，不预设
     nsi = board_flow(d, "有色金属", "工业金属", "小金属", "贵金属")
@@ -1559,6 +1818,107 @@ def sec10(d):
     util_row = ("<tr><td>主力净流入(公用事业)</td><td>%s</td><td>板块级资金流</td></tr>"
                 % util_net)
 
+    # ---- 指数估值：股息率 / PE / PB / 历史分位（蛋卷指数估值，2026-10-30 接入）----
+    # 低估判定规则（用户 2026-10-30 指令）：**股息率阈值 AND PE 历史分位，双条件同时成立**。
+    #   · 股息率 ≥ 阈值  → 高息（相对债券）
+    #   · PE 分位 ≤ 阈值 → 低估值
+    # 两块各用各的阈值（config.VALUATION_RULE）：金属股股息率天然低，不能套红利口径。
+    val = d.get("valuation") or {}
+    cpe = d.get("csindex_pe") or {}
+    drule = config.VALUATION_RULE["dividend"]
+    mrule = config.VALUATION_RULE["metal"]
+
+    def dual(yield_v, pe_pct, rule):
+        return valuation_dual(yield_v, pe_pct, rule)
+
+    # 【②】红利系：蛋卷 —— 股息率与 PE 分位都有
+    val_rows = ""
+    val_parts = []
+    hit_idx = []
+    for code, (_disp, key) in config.VALUATION_INDEXES.items():
+        it = val.get(key)
+        if not it:
+            continue
+        y = it.get("yield")
+        y_txt = ("%.2f%%" % (y * 100)) if y is not None else NA
+        pe = it.get("pe")
+        pe_txt = ("%.2f" % pe) if pe else NA
+        pep = it.get("pe_pct")
+        pep_txt = ("%.0f%%" % (pep * 100)) if pep is not None else NA
+        pbp = it.get("pb_pct")
+        pbp_txt = ("%.0f%%" % (pbp * 100)) if pbp is not None else NA
+        st, hit, why = dual(y, pep, drule)
+        if hit:
+            hit_idx.append(it.get("name") or _disp)
+        val_rows += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
+                     "<td>%s</td><td>%s</td></tr>"
+                     % (it.get("name") or _disp, y_txt, pe_txt, pep_txt,
+                        pbp_txt, ("<span class='tag g'>%s</span>" % st) if hit
+                        else "<span class='tag n'>%s</span>" % st))
+        val_parts.append("%s 股息率 %s、PE 分位 %s（%s）"
+                         % (it.get("name") or _disp, y_txt, pep_txt, st))
+    if val_rows:
+        val_note = ("数据源：蛋卷指数估值（估值日 %s）；PE 分位区间为其历史分位。"
+                    % (val.get("HLDB", {}).get("date") or "最新"))
+    else:
+        val_note = "估值数据未获取"
+    if hit_idx:
+        val_verdict = ("<b>结论：可分批建底仓</b> —— %s 双条件同时成立"
+                       "（股息率 ≥ %.1f%% 且 PE 历史分位 ≤ %.0f%%）。"
+                       % ("、".join(hit_idx), drule["yield_min"] * 100,
+                          drule["pe_pct_max"] * 100))
+    else:
+        val_verdict = ("<b>结论：观察，不建底仓</b> —— 三个红利系指数均未同时满足"
+                       "「股息率 ≥ %.1f%% 且 PE 历史分位 ≤ %.0f%%」双条件。"
+                       % (drule["yield_min"] * 100, drule["pe_pct_max"] * 100))
+    val_block = (
+        "<div class='box'><b>信号检查（双条件）</b>："
+        + ("；".join(val_parts) + "。" if val_parts else "估值数据未获取。")
+        + "判定规则：<b>股息率 ≥ %.1f%%　AND　PE 历史分位 ≤ %.0f%%</b>，"
+          "两条件同时成立才算低估。股息率<b>自身</b>的历史分位免费接口不提供，"
+          "此处用 PE 历史分位作估值冷热参照，<b>不与股息率分位混用</b>。"
+        % (drule["yield_min"] * 100, drule["pe_pct_max"] * 100)
+        + val_verdict + "</div>")
+
+    # 【①】金属类：PE 分位走中证官网自算（中证有色 930708 / 中证稀有 930632）
+    # ⚠️ 金属股的股息率免费接口拿不到（中证官网不提供、蛋卷 63 个指数无金属行业）
+    #    → 股息率腿标「缺数据」，判定为「条件不全」，**不拿别的指数的股息率凑数**。
+    met_rows = ""
+    met_parts = []
+    for code, name in config.METAL_INDEXES:
+        it = cpe.get(code)
+        if not it:
+            continue
+        pep = it.get("pe_pct")
+        pep_txt = ("%.0f%%" % (pep * 100)) if pep is not None else NA
+        p_ok = pep is not None and pep <= mrule["pe_pct_max"]
+        st, hit, why = dual(None, pep, mrule)
+        met_rows += ("<tr><td>%s</td><td>%.2f</td><td>%s</td><td>"
+                     "<span class='na'>%s</span></td><td>%s</td><td>%s</td></tr>"
+                     % (it.get("name") or name, it.get("pe") or 0, pep_txt,
+                        "缺数据（免费接口不提供）",
+                        "<span class='tag g'>通过</span>" if p_ok
+                        else "<span class='tag n'>未通过</span>",
+                        "<span class='tag n'>%s</span>" % st))
+        met_parts.append("%s PE %s、历史分位 %s（PE 腿%s）"
+                         % (it.get("name") or name,
+                            ("%.2f" % it.get("pe")) if it.get("pe") else NA,
+                            pep_txt, "通过" if p_ok else "未通过"))
+    if met_rows:
+        met_note = ("数据源：中证指数官网 index-perf（peg 字段＝PE，%s 根日K自算历史分位）。"
+                    % (cpe.get(config.METAL_INDEXES[0][0], {}) or {}).get("bars", 0))
+        met_block = (
+            "<div class='box'><b>信号检查（双条件 · 同构规则）</b>："
+            + ("；".join(met_parts) + "。" if met_parts else "金属指数估值未获取。")
+            + "判定规则同【②】：<b>股息率 ≥ %.1f%%　AND　PE 历史分位 ≤ %.0f%%</b>。"
+            % (mrule["yield_min"] * 100, mrule["pe_pct_max"] * 100)
+            + "<b>股息率腿对金属类缺数据</b>（中证官网不提供、蛋卷无金属行业），"
+              "因此本块<b>只完成 PE 腿</b>，<b>双条件未闭合 → 不自动触发建底仓</b>；"
+              "PE 腿通过只说明估值处于历史低位，仍需人工确认股息率后再决定。</div>")
+    else:
+        met_note = "金属指数估值未获取"
+        met_block = "<div class='box'><b>信号检查（双条件 · 同构规则）</b>：金属指数估值未获取，本日不做方向性结论。</div>"
+
     tpl = """
 <section id="s10"><h2>十、低估 · 低拥挤板块跟踪</h2>
 <h3 class="sub">【① 稀有小金属 / 稀有资源】</h3>
@@ -1566,6 +1926,11 @@ def sec10(d):
 {rows}{al_row}</table>
 <table><tr><th>监控标的</th><th>今日数据</th><th>涨跌</th></tr>
 {rows2}</table>
+<h3 class="sub">①-估值双条件判定</h3>
+<table><tr><th>指数</th><th>PE</th><th>PE历史分位</th><th>股息率</th><th>PE腿</th><th>综合判定</th></tr>
+{met_rows}</table>
+<p class="na">{met_note}</p>
+{met_block}
 <div class="box warn"><b>信号检查</b><br>
 {nsi_txt}</div>
 <h3 class="sub">【② 电力与公用事业（压舱底仓）】</h3>
@@ -1573,19 +1938,26 @@ def sec10(d):
 <tr><td>电力ETF 159611</td><td>{d11}</td><td>{d12}</td></tr>
 <tr><td>红利低波ETF 512890</td><td>{d21}</td><td>{d22}</td></tr>
 {util_row}</table>
-<div class="box"><b>信号检查</b>：股息率分位数据暂未获取（需第三方终端）。
-电力ETF {t1}；红利低波 {t2}。<b>结论：观察</b>，跌至低估分位再考虑建底仓。</div>
+<h3 class="sub">②-估值双条件判定</h3>
+<table><tr><th>指数</th><th>股息率</th><th>PE</th><th>PE历史分位</th><th>PB历史分位</th><th>综合判定</th></tr>
+{val_rows}</table>
+<p class="na">{val_note}</p>
+{val_block}
+<p class="na">电力ETF {t1}；红利低波 {t2}。</p>
 <h3 class="sub">【监控节奏状态行】</h3>
-<table><tr><th>标的</th><th>最新价</th><th>信号状态</th></tr>
+<table><tr><th>标的</th><th>最新价</th><th>信号状态</th><th>连续相对强弱（对上证）</th></tr>
 {pace_rows}</table>
+<p class="na">连续相对强弱＝逐日比较该标的与上证的日涨跌幅，从最新一根日K（{bench_date}）往前数连续同向的天数。</p>
 </section>"""
     return F(tpl, rows=rows, rows2=rows2, al_row=al_row,
              util_row=util_row, nsi_txt=nsi_txt,
+             val_rows=val_rows, val_note=val_note, val_block=val_block,
+             met_rows=met_rows, met_note=met_note, met_block=met_block,
              d11=price((we.get("159611") or {}).get("close"), 3),
              d12=pct((we.get("159611") or {}).get("pct")),
              d21=price((we.get("512890") or {}).get("close"), 3),
              d22=pct((we.get("512890") or {}).get("pct")),
-             pace_rows=pace_rows,
+             pace_rows=pace_rows, bench_date=(bench[-1]["date"] if bench else NA),
              t1=tone(d, "159611").rstrip("。"),
              t2=tone(d, "512890").rstrip("。"))
 
@@ -1605,7 +1977,9 @@ def render(d):
     gen = datetime.fromisoformat(d["generated_at"]).strftime("%Y-%m-%d %H:%M")
     src = d.get("source") or "realtime"
     src_txt = ("历史日K回补口径（逐日K线回溯，非实时快照）"
-               if src.startswith("historical") else "实时收盘快照")
+               if src.startswith("historical")
+               else ("盘中实时快照（未收盘）" if is_intraday(d)
+                     else "实时收盘快照"))
 
     if b:
         bd_v = "%d / %d" % (b[0], b[1])
@@ -1622,8 +1996,10 @@ def render(d):
         ("s1", "创业板指", price((ix.get("399006") or {}).get("close")),
          pct((ix.get("399006") or {}).get("pct"))),
         ("s2", "两市成交额", "%.0f 亿" % (amt / 1e8) if amt else NA,
-         ('<span class="%s">较前日 %+.2f%%</span>' % ("up" if ac > 0 else "down", ac))
-         if ac is not None else '<span class="na">较前日：' + NA + '</span>'),
+         ('<span class="na">盘中口径·未收盘</span>') if is_intraday(d)
+         else (('<span class="%s">较前日 %+.2f%%</span>'
+                % ("up" if ac > 0 else "down", ac)) if ac is not None
+               else '<span class="na">较前日：' + NA + '</span>')),
         ("s2", "涨跌家数", bd_v, bd_d),
         ("s8", "加仓触发", "%d / %d" % (hit, tot),
          ('<span class="up">盘中另触及 %d 项</span>' % (ihit - hit))
@@ -1648,7 +2024,7 @@ def render(d):
 <div class="cnt">今日触发 {hit} / {tot}</div>
 <p>{msg}</p>
 <p>{msg2}</p></div>
-{s1}{s2}{s3}{s4}{s4b}{s5}{s6}{s7}{s8}{s9}{s10}{s11}
+{s1}{s2}{s3}{s4}{s4b}{s5}{s6}{s6b}{s7}{s8}{s9}{s10}{s11}
 <div class="foot">本报告由脚本基于公开行情接口自动生成，<b>不构成投资建议</b>。
 标注「数据暂未获取」的字段表示该接口未提供，<b>未做任何推测、插值或替代</b>。
 入市有风险，投资需谨慎。</div>
@@ -1677,8 +2053,8 @@ document.querySelectorAll('nav a').forEach(function(a){
                    ("盘中击穿 {} 项，与收盘口径一致。".format(ihit) if ihit
                     else "")),
              s1=sec1(d), s2=sec2(d), s3=sec3(d), s4=sec4(d), s4b=sec4b(d),
-             s5=sec5(d), s6=sec6(d), s7=sec7(d), s8=sec8(d), s9=sec9(d),
-             s10=sec10(d), s11=sec11(d))
+             s5=sec5(d), s6=sec6(d), s6b=sec6b(d), s7=sec7(d), s8=sec8(d),
+             s9=sec9(d), s10=sec10(d), s11=sec11(d))
 
 ORDER_IDX = ["000001", "399001", "399006", "000688", "899050"]
 

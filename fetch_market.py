@@ -144,7 +144,14 @@ def trading_day():
         ks = js["data"].get("klines") or []
         if ks:
             trade_date = ks[-1].split(",")[0]
-            quote_time = trade_date + " 15:00"
+            # 日K 只给日期，不给时刻。quote_time 必须反映快照的**真实**时刻：
+            #   · 行情日期 == 今天 → 快照取自盘中，用真实时钟
+            #     （硬编码 "15:00" 会把盘中快照谎报成收盘，报告页脚也会跟着错）
+            #   · 行情日期 <  今天 → 快照是已收盘的，标 "15:00" 才正确
+            now = datetime.now(CST)
+            quote_time = (now.strftime("%Y-%m-%d %H:%M")
+                          if trade_date == now.date().isoformat()
+                          else trade_date + " 15:00")
 
     if not trade_date:
         js = _get("https://push2.eastmoney.com/api/qt/stock/get"
@@ -916,6 +923,312 @@ def fetch_sina_int_index():
     return out
 
 
+def fetch_launch_calendar():
+    """全球发射日历（NextSpaceflight 公开 API）。
+
+    数据源（2026-10-30 实测）：
+      https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=6
+      JSON：results[] → net(ISO8601 带时区) / name / status.name
+             / launch_service_provider.name
+
+    用途：第九章四项产业指标里的「发射日历」。
+      原先四项全部标"需专用数据源"，实测这一项有公开免费源，可接。
+      口径提醒：这是**全球**发射日历（商业/军用/科研混合），
+      只作产业活跃度观测，不等同于"中国商业航天发射计划"，报告里须照实标注。
+    """
+    txt = _get_text(config.SPACEFLIGHT_API, config.SPACEFLIGHT_HEADERS,
+                    enc="utf-8", retries=3, timeout=25)
+    if not txt:
+        return []
+    try:
+        j = json.loads(txt)
+    except Exception:
+        return []
+    out = []
+    for r in (j.get("results") or [])[:8]:
+        net = r.get("net") or ""
+        st = (r.get("status") or {}).get("name") or ""
+        # net 形如 2026-10-30T18:21:00Z —— 统一换算到北京时区再截取
+        dt_txt = ""
+        if net:
+            try:
+                dt = datetime.fromisoformat(net.replace("Z", "+00:00"))
+                dt_txt = dt.astimezone(CST).strftime("%m-%d %H:%M")
+            except Exception:
+                dt_txt = net[:16].replace("T", " ")
+        out.append({
+            "date": dt_txt,
+            "name": r.get("name") or "",
+            "status": st,
+            "provider": ((r.get("launch_service_provider") or {}).get("name") or ""),
+        })
+    return out
+
+
+def fetch_index_valuation():
+    """指数估值：股息率 / PE / PB / 历史分位（蛋卷指数估值）。
+
+    数据源（2026-10-30 实测）：
+      https://danjuanfunds.com/djapi/index_eva/dj
+      JSON：data.items[] → index_code / name / yeild(股息率,小数)
+            / pe / pb / pe_percentile / pb_percentile / eva_type / date
+
+    用途：第十章【②】电力与公用事业（压舱底仓）的"信号检查"。
+      原先整块写「股息率分位数据暂未获取（需第三方终端）」，实测：
+        · 当前股息率、PE、PB、PE/PB 历史分位 → 可得
+        · 股息率**自身的**历史分位 → 蛋卷 yield_history / dividend 接口
+          返回 300001「请重新登录」→ 仍然拿不到
+      ⇒ 这里只取可得部分；报告层必须写明「股息率历史分位仍缺」，
+        不得用 PE 分位冒充股息率分位。
+    """
+    txt = _get_text(config.DANJUAN_EVA_API, config.DANJUAN_EVA_HEADERS,
+                    enc="utf-8", retries=3, timeout=25)
+    if not txt:
+        return {}
+    try:
+        j = json.loads(txt)
+    except Exception:
+        return {}
+    items = ((j.get("data") or {}).get("items")) or []
+    out = {}
+    for it in items:
+        code = it.get("index_code")
+        if code not in config.VALUATION_INDEXES:
+            continue
+        _name, key = config.VALUATION_INDEXES[code]
+        out[key] = {
+            "code": code,
+            "name": it.get("name") or _name,
+            "yield": _f(it.get("yeild")),
+            "pe": _f(it.get("pe")),
+            "pb": _f(it.get("pb")),
+            "pe_pct": _f(it.get("pe_percentile")),
+            "pb_pct": _f(it.get("pb_percentile")),
+            "eva_type": it.get("eva_type") or "",
+            "date": it.get("date") or "",
+            "src": "蛋卷指数估值",
+        }
+    return out
+
+
+def fetch_fund_nav():
+    """场外基金最新净值（天天基金历史净值接口 lsjz）。
+
+    数据源（2026-10-30 实测）：
+      https://api.fund.eastmoney.com/f10/lsjz?fundCode=015790&pageIndex=1&pageSize=2
+      JSON：Data.LSJZList[] → FSRQ(净值日期) / DWJZ(单位净值) / LJJZ(累计净值) / JZZZL(当日涨跌%)
+
+    ⚠️ 口径：
+      · 场外基金**盘中无报价**，净值在每个交易日收盘后由基金公司披露，
+        通常滞后 1 个交易日（QDII 滞后 2~3 天）→ 表里必须带「净值日期」列。
+      · 只取单位净值 DWJZ（不含分红再投累计值 LJJZ），与持仓份额口径一致。
+      · 每日净值涨跌 JZZZL 是真实值；**不**据此折算持仓金额（缺份额）。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(code):
+        url = config.FUND_NAV_API % code
+        txt = _get_text(url, config.FUND_NAV_HEADERS, enc="utf-8",
+                        retries=3, timeout=25)
+        if not txt:
+            return code, None
+        try:
+            j = json.loads(txt)
+            rows = ((j.get("Data") or {}).get("LSJZList")) or []
+            if not rows:
+                return code, None
+            r0 = rows[0]
+            nav = _f(r0.get("DWJZ"))
+            if nav is None:
+                return code, None
+            return code, {
+                "nav": nav,
+                "acc_nav": _f(r0.get("LJJZ")),
+                "pct": _f(r0.get("JZZZL")),
+                "date": r0.get("FSRQ") or "",
+                "prev_nav": _f(rows[1].get("DWJZ")) if len(rows) > 1 else None,
+                "src": "天天基金历史净值",
+            }
+        except Exception:
+            return code, None
+
+    codes = [f[0] for f in config.FUND_ACCOUNT]
+    out = {}
+    try:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for code, v in ex.map(one, codes):
+                if v:
+                    out[code] = v
+    except Exception as e:
+        print("  [FAIL] 场外基金净值批量抓取 -> %s" % e)
+    return out
+
+
+def fetch_csindex_pe():
+    """中证指数 PE 历史分位（中证官网 index-perf 自算）。
+
+    数据源（2026-10-30 实测）：
+      https://www.csindex.com.cn/csindex-home/perf/index-perf
+          ?indexCode=930708&startDate=20161030&endDate=20261030
+      ⚠️ startDate/endDate **必须 YYYYMMDD**（带横杠会返回空数组）
+      JSON：data[] → tradeDate / close / peg（peg 字段就是 PE）/ consNumber
+
+    用途：第十章【①】稀有小金属的 PE 历史分位。
+      中证官网不提供股息率，蛋卷 63 个指数里也没有金属行业 →
+      金属类的「股息率腿」缺数据，报告里如实写明，不拿别的指数的股息率凑。
+    """
+    out = {}
+    today = datetime.now(CST).date()
+    end = today.strftime("%Y%m%d")
+    start = (today.replace(year=today.year - 10)).strftime("%Y%m%d")
+    for code, name in config.METAL_INDEXES:
+        url = config.CSINDEX_PERF_API % (code, start, end)
+        txt = _get_text(url, config.CSINDEX_HEADERS, enc="utf-8",
+                        retries=3, timeout=30)
+        if not txt:
+            continue
+        try:
+            arr = (json.loads(txt).get("data")) or []
+        except Exception:
+            continue
+        vals = []
+        last_pe = None
+        last_date = None
+        for r in arr:
+            pe = _f(r.get("peg"))
+            if pe is None or pe <= 0:
+                continue
+            vals.append(pe)
+            last_pe = pe
+            last_date = r.get("tradeDate") or ""
+        if not vals:
+            continue
+        below = sum(1 for v in vals if v <= last_pe)
+        out[code] = {
+            "name": name,
+            "pe": last_pe,
+            "pe_pct": below / float(len(vals)),
+            "bars": len(vals),
+            "date": last_date,
+            "src": "中证指数官网 index-perf（peg 字段＝PE，自算分位）",
+        }
+    return out
+
+
+def _tx_kline_closes(symbol, n=14):
+    """腾讯日K收盘序列（备源/主源之一）。
+
+    https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh512400,day,,,14,qfq
+    → data[symbol]["qfqday"] = [[日期, 开, 收, 高, 低, 量, ...], ...]，索引 2 = 收盘
+    实测比东财 push2his 稳得多（后者会间歇性掐连接）。
+    """
+    txt = _get_text("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+                    "?param=%s,day,,,%d,qfq" % (symbol, n),
+                    {"Referer": "https://gu.qq.com/"}, enc="utf-8", retries=2, timeout=20)
+    if not txt:
+        return []
+    try:
+        d = json.loads(txt).get("data", {}).get(symbol) or {}
+        bars = d.get("qfqday") or d.get("day") or []
+    except Exception:
+        return []
+    out = []
+    for b in bars:
+        if len(b) < 3:
+            continue
+        c = _f(b[2])
+        if c:
+            out.append({"date": b[0], "close": c})
+    return out
+
+
+def _em_kline_closes(secid, n=14):
+    """东财日K收盘序列（备源）。
+
+    klines 每根 = "日期,开,收,高,低,成交量,成交额"（索引 2 = 收盘）
+    ⚠️ push2his 会被间歇性掐连接，必须多重试 + 失败就交给腾讯兜底。
+    """
+    url = ("https://push2his.eastmoney.com/api/qt/stock/kline/get"
+           "?secid=%s&klt=101&fqt=1&end=20500101&lmt=%d"
+           "&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57" % (secid, n))
+    for _ in range(3):
+        js = _get(url, retries=2)
+        if js and isinstance(js.get("data"), dict):
+            ks = js["data"].get("klines") or []
+            out = []
+            for k in ks:
+                parts = k.split(",")
+                if len(parts) < 3:
+                    continue
+                c = _f(parts[2])
+                if c:
+                    out.append({"date": parts[0], "close": c})
+            if out:
+                return out
+        time.sleep(0.8)
+    return []
+
+
+def fetch_monitor_klines():
+    """监控标的 + 上证的日K收盘序列（算「连续 N 日跑赢/跑输」）。
+
+    主源：腾讯 web.ifzq.gtimg.cn（实测稳定，5 只全通）
+    备源：东财 push2his（间歇性掐连接）
+    ⚠️ 上证指数必须用 sh000001 / 1.000001 —— 6 位代码 000001 有歧义，
+       config.secid("000001") 会算成 "0.000001"（= 平安银行），
+       拿平安银行当基准会让「连续跑赢/跑输」全部算错（已踩过这个坑）。
+    """
+    out = {}
+    # (腾讯symbol, 东财secid, 内部code, 显示名)
+    secs = [("sh512400", "1.512400", "512400", "有色金属ETF南方"),
+            ("sh562800", "1.562800", "562800", "稀有金属ETF嘉实"),
+            ("sz159611", "0.159611", "159611", "电力ETF广发"),
+            ("sh512890", "1.512890", "512890", "红利低波ETF华泰柏瑞"),
+            ("sh000001", "1.000001", "000001", "上证指数")]
+    for sym, secid, code, name in secs:
+        closes = _tx_kline_closes(sym)
+        if len(closes) < 2:
+            closes = _em_kline_closes(secid)
+        if len(closes) >= 2:
+            out[code] = {"name": name, "closes": closes,
+                         "src": "腾讯日K" if len(closes) else ""}
+    return out
+
+
+def _rel_streak(closes, bench):
+    """相对上证连续同向天数。
+
+    closes：标��的收盘序列（升序）
+    bench：上证收盘序列（升序）
+    返回 (连续天数, 方向) —— 方向 +1 跑赢 / -1 跑输 / 0 无法判定
+    """
+    if not closes or not bench:
+        return 0, 0
+    bmap = {b["date"]: b["close"] for b in bench}
+    signs = []
+    for i in range(1, len(closes)):
+        d, c = closes[i]["date"], closes[i]["close"]
+        p = closes[i - 1]["close"]
+        bd = bmap.get(d)
+        bp = bmap.get(closes[i - 1]["date"])
+        if bd is None or bp is None or not p or not bp:
+            continue
+        signs.append(1 if (c / p - 1) > (bd / bp - 1) else
+                     (-1 if (c / p - 1) < (bd / bp - 1) else 0))
+    if not signs:
+        return 0, 0
+    last = signs[-1]
+    if last == 0:
+        return 0, 0
+    n = 0
+    for s in reversed(signs):
+        if s == last:
+            n += 1
+        else:
+            break
+    return n, last
+
+
 def fetch_news(trade_date):
     """消息面：东财 7x24 快讯 + 持仓个股公告。
 
@@ -1206,12 +1519,12 @@ def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else "data"
     os.makedirs(outdir, exist_ok=True)
 
-    print("[1/8] 判定交易日 ...")
+    print("[1/9] 判定交易日 ...")
     trade_date, quote_time = trading_day()
     today = datetime.now(CST).date().isoformat()
     print("      行情日期=%s  当前=%s  %s"
           % (trade_date, today, _trade_state(trade_date, today)))
-    print("[2/8] 指数 ...")
+    print("[2/9] 指数 ...")
     idx = _safe("指数", fetch_indexes, {})
     pa = fetch_prev_amount(trade_date)
     for code, amt in pa.items():
@@ -1220,19 +1533,19 @@ def main():
     if pa:
         print("      上一交易日成交额已回填：%s"
               % ", ".join("%s=%.0f亿" % (k, v / 1e8) for k, v in pa.items()))
-    print("[3/8] 持仓与监控ETF ...")
+    print("[3/9] 持仓与监控ETF ...")
     pf, watch = _safe("持仓与监控ETF", fetch_portfolio, ({}, {}))
-    print("[4/8] 资金面与涨跌停 ...")
+    print("[4/9] 资金面与涨跌停 ...")
     flow = _safe("板块资金流", fetch_fund_flow, {})
     limits = _safe("涨跌停家数", fetch_limit_pool,
                    {"zt": None, "dt": None}, trade_date)
     print("      板块资金流字典：%d 个板块" % len(flow.get("boards") or {}))
     sectors = _safe("新浪板块涨跌幅", fetch_sina_sectors, {})
-    print("[5/8] 全球宏观（东财+新浪+腾讯+美财政部）...")
+    print("[5/9] 全球宏观（东财+新浪+腾讯+美财政部）...")
     glb = _safe("全球宏观", fetch_global, {})
     print("      已获取：%s"
           % ", ".join(sorted(k for k, v in glb.items() if v and v.get("close"))))
-    print("[6/8] 宽基ETF（第三章 国家队/汇金观察）+ 第九章代理ETF ...")
+    print("[6/9] 宽基ETF（第三章 国家队/汇金观察）+ 第九章代理ETF ...")
     broad = _safe("宽基ETF", fetch_broad_etfs, {})
     print("      宽基ETF到位：%d / %d"
           % (len([v for v in broad.values() if v.get("close")]), len(broad)))
@@ -1240,13 +1553,25 @@ def main():
     print("      第九章代理ETF %s：%s"
           % (config.AEROSPACE_FUND.get("proxy_code"),
              ("%s %s" % (proxy.get("close"), proxy.get("pct"))) if proxy else "未获取"))
-    print("[7/8] 消息面（7x24快讯 + 持仓公告）...")
+    print("[7/9] 消息面（7x24快讯 + 持仓公告）...")
     news = _safe("消息面", fetch_news,
                  {"kuaixun": [], "ann": [], "kx_date": None}, trade_date)
     print("      快讯 %d 条（日期 %s）｜ 持仓公告 %d 条"
           % (len(news["kuaixun"]), news.get("kx_date"), len(news["ann"])))
     print("      新浪板块涨跌幅：%d 个" % len(sectors))
-    print("[8/8] 触发判定 ...")
+    print("[8/9] 商业航天发射日历 + 指数估值 + 场外基金净值 + 金属PE分位 + 监控日K ...")
+    launches = _safe("发射日历", fetch_launch_calendar, [])
+    val = _safe("指数估值", fetch_index_valuation, {})
+    fnav = _safe("场外基金净值", fetch_fund_nav, {})
+    cpe = _safe("中证金属PE分位", fetch_csindex_pe, {})
+    mk = _safe("监控标的日K", fetch_monitor_klines, {})
+    print("      发射日历 %d 条｜指数估值 %d 个｜基金净值 %d/%d 只｜金属PE分位 %d 个｜日K %d 个"
+          % (len(launches), len(val), len(fnav), len(config.FUND_ACCOUNT),
+             len(cpe), len(mk)))
+    for _c, _info in cpe.items():
+        print("      %s %s PE=%.2f 分位=%.1f%%（%d 根K线）"
+              % (_c, _info["name"], _info["pe"], _info["pe_pct"] * 100, _info["bars"]))
+    print("[9/9] 触发判定 ...")
     trig = evaluate_triggers(pf)
 
     up = sum(1 for r in trig if r.get("trigger"))
@@ -1260,6 +1585,8 @@ def main():
         "fund_flow": flow, "limit_pool": limits, "global": glb,
         "broad_etfs": broad, "news": news, "proxy_etf": proxy,
         "sectors": sectors,
+        "launches": launches, "valuation": val,
+        "fund_nav": fnav, "csindex_pe": cpe, "monitor_klines": mk,
         "triggers": trig, "triggered_count": up, "trigger_total": len(trig),
         "intraday_triggered_count": iup,
     }
