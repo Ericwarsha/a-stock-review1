@@ -515,7 +515,10 @@ def fetch_global():
     for k, v in fetch_us_treasury().items():   # 美债收益率（东财/新浪都不提供）
         if k in ("US10Y", "US30Y", "US5Y", "US2Y"):
             out[k] = v
-    for k in ("BRENT", "US10Y", "US30Y", "US5Y", "US2Y",
+    for k, v in fetch_us_treasury_real().items():  # 10Y TIPS 实际收益率（黄金因子②）
+        if k == "US10Y_REAL":
+            out[k] = v
+    for k in ("BRENT", "US10Y", "US10Y_REAL", "US30Y", "US5Y", "US2Y",
               "USDCNY", "USDJPY", "SPOT_XAU",
               "NIKKEI", "DJIA_CLOSE", "NASDAQ_CLOSE", "SPX_CLOSE"):
         out.setdefault(k, None)
@@ -748,6 +751,72 @@ def _treasury_rows_xml(txt):
             continue
         out.append((iso, v10, v30, v5, v2))
     out.sort(key=lambda x: x[0], reverse=True)
+    return out
+
+
+def fetch_us_treasury_real():
+    """10Y TIPS 实际收益率（美国财政部官方*真实*收益率曲线）。
+
+    黄金对**实际利率**负相关 —— 实际利率 = 持有黄金的真实机会成本。
+    名义利率被通胀预期污染（同样的名义利率，实际利率可以差很多），
+    所以黄金加仓因子用实际利率判定，而不是名义 10Y。
+
+    2026-10-30 起替代旧口径「美10Y名义 < 4.3%」（该口径实际不可达：
+    全年 208 个发布日仅 58 天低于 4.3%，最后一次 2026-04-20）。
+    新口径实测：TIPS 10Y 区间 1.72~2.95%，低于 2.00% 的有 83 天（39.9%）。
+    """
+    year = datetime.now(CST).year
+    csv_url = ("https://home.treasury.gov/resource-center/data-chart-center/"
+               "interest-rates/daily-treasury-rates.csv/%d/all"
+               "?type=daily_treasury_real_yield_curve&field_tdr_date_value=%d"
+               "&page&_format=csv" % (year, year))
+    hdr = {"Referer": "https://home.treasury.gov/"}
+    t = _get_text(csv_url, hdr, enc="utf-8", retries=3, timeout=25)
+
+    series = []
+    if t and "10 YR" in t:
+        rows = list(csv.reader(io.StringIO(t)))
+        if len(rows) >= 2:
+            heads = [h.strip().strip('"') for h in rows[0]]
+            try:
+                i_d = heads.index("Date")
+                i_10 = heads.index("10 YR")
+            except ValueError:
+                i_d, i_10 = 0, 3
+            for r in rows[1:]:
+                if len(r) <= max(i_d, i_10):
+                    continue
+                ds, vs = r[i_d].strip(), r[i_10].strip()
+                if not ds or not vs:
+                    continue
+                try:
+                    iso = datetime.strptime(ds, "%m/%d/%Y").date().isoformat()
+                    series.append((iso, float(vs)))
+                except ValueError:
+                    continue
+    if not series:
+        return {}
+    series.sort(key=lambda x: x[0], reverse=True)
+
+    iso, v10 = series[0]
+    src = "美国财政部官方真实收益率曲线"
+    out = {"US10Y_REAL": {"name": "美10Y实际收益率(TIPS)", "close": v10,
+                          "prev": None, "pct": None, "date": iso, "src": src}}
+    if len(series) > 1:
+        out["US10Y_REAL"]["prev"] = series[1][1]
+        out["US10Y_REAL"]["prev_date"] = series[1][0]
+        if series[1][1] is not None and v10 is not None:
+            out["US10Y_REAL"]["chg_bp"] = round((v10 - series[1][1]) * 100, 1)
+    thr = config.GOLD_FACTOR_TIPS_10Y
+    below = [x for x in series if x[1] < thr]
+    vals = [x[1] for x in series]
+    out["US10Y_REAL"]["ytd_min"] = min(vals)
+    out["US10Y_REAL"]["ytd_max"] = max(vals)
+    out["US10Y_REAL"]["ytd_days"] = len(series)
+    out["US10Y_REAL"]["days_below_thr"] = len(below)
+    out["US10Y_REAL"]["last_below_date"] = below[0][0] if below else None
+    out["US10Y_REAL"]["min_date"] = min(series, key=lambda x: x[1])[0]
+    out["US10Y_REAL"]["max_date"] = max(series, key=lambda x: x[1])[0]
     return out
 
 

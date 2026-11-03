@@ -192,23 +192,31 @@ def gy(d, key, dp=2):
 def gold_factor(d):
     """黄金 002611 双因子判定（任一因子满足即可触发）。
 
-    因子① Brent < 100 美元；因子② 美10Y < 4.3%。
+    因子① Brent < 100 美元；因子② 10Y 实际收益率(TIPS) < 2.00%。
+
+    ⚠️ 口径变更（用户 2026-10-30 决定「换口径」）：因子② 原为「美10Y名义 < 4.3%」，
+    该阈值实际**不可达** —— 2026 全年 208 个发布日仅 58 天低于 4.3%，最后一次
+    2026-04-20，等同于黄金永久停买。根因是名义利率被通胀预期污染，不是黄金的
+    真实机会成本。改为用**实际利率**（TIPS，美国财政部官方真实收益率曲线）：
+    黄金对实际利率负相关。实测 TIPS 10Y 低于 2.00% 的交易日占 39.9%（83/208）。
+
     数据缺口时 known=False —— 既不宣称触发，也不宣称未触发。
     """
     g = d.get("global") or {}
     b_th = config.GOLD_FACTOR_BRENT
-    y_th = config.GOLD_FACTOR_US10Y
+    y_th = config.GOLD_FACTOR_TIPS_10Y
     brent = (g.get("BRENT") or {}).get("close")
-    us10y = (g.get("US10Y") or {}).get("close")
+    tips = (g.get("US10Y_REAL") or {}).get("close")
     b_ok = brent is not None and brent < b_th
-    y_ok = us10y is not None and us10y < y_th
-    return {"brent": brent, "us10y": us10y, "b_th": b_th, "y_th": y_th,
+    y_ok = tips is not None and tips < y_th
+    return {"brent": brent, "tips": tips, "b_th": b_th, "y_th": y_th,
             "b_ok": b_ok, "y_ok": y_ok,
-            "known": brent is not None and us10y is not None,
+            "known": brent is not None and tips is not None,
             "trigger": b_ok or y_ok,
             "b_gap": (brent - b_th) if brent is not None else None,
-            "y_gap": (us10y - y_th) if us10y is not None else None,
-            "u": g.get("US10Y") or {}}
+            "y_gap": (tips - y_th) if tips is not None else None,
+            "u": g.get("US10Y_REAL") or {},
+            "u_nom": g.get("US10Y") or {}}
 
 
 def fmt_amt(v):
@@ -518,22 +526,32 @@ def sec2(d):
     def rows(lst, cls):
         s = ""
         for x in lst[:5]:
-            s += ("<tr><td>%s</td><td class='%s'>%+.2f</td><td>%s</td></tr>"
-                  % (x["name"], cls, x["net_yi"], pct(x["pct"])))
+            # net_yi 可能缺失（接口只回了名字）→ 显示 NA，绝不当 0
+            ny = x.get("net_yi")
+            s += ("<tr><td>%s</td><td class='%s'>%s</td><td>%s</td></tr>"
+                  % (x["name"], cls,
+                     ("%+.2f" % ny) if ny is not None else NA, pct(x.get("pct"))))
         return s or "<tr><td colspan='3' class='na'>%s</td></tr>" % NA
 
     ins = [x["name"] for x in f.get("in_top") or []]
     outs = [x["name"] for x in f.get("out_top") or []]
-    tin = sum(x["net_yi"] for x in f.get("in_top") or [])
-    tout = sum(x["net_yi"] for x in f.get("out_top") or [])
+    # 只对真实取到的 net_yi 求和；有任何一条缺失 → 合计标"部分"
+    _in_list = f.get("in_top") or []
+    _out_list = f.get("out_top") or []
+    _in_miss = any(x.get("net_yi") is None for x in _in_list)
+    _out_miss = any(x.get("net_yi") is None for x in _out_list)
+    tin = sum(x["net_yi"] for x in _in_list if x.get("net_yi") is not None)
+    tout = sum(x["net_yi"] for x in _out_list if x.get("net_yi") is not None)
     ratio = abs(tout / tin) if tin else None
     # 流入、流出必须各自判空。
     # 2026-10-30 云端实测踩过：只有 in_top 拿到、out_top 被东财掐断为空，
     # 旧写法用 bool(in_top or out_top) 当"整体可用"，
     # 于是写出"流出前5合计 0.00 亿、流出是流入的 0.00 倍"——把未知说成了零。
     in_ok, out_ok = bool(f.get("in_top")), bool(f.get("out_top"))
-    tin_s = "%.2f" % tin if in_ok else NA
-    tout_s = "%.2f" % tout if out_ok else NA
+    tin_s = ("%.2f（部分）" % tin) if (in_ok and _in_miss) else \
+            ("%.2f" % tin if in_ok else NA)
+    tout_s = ("%.2f（部分）" % tout) if (out_ok and _out_miss) else \
+             ("%.2f" % tout if out_ok else NA)
     # 倍数只在两侧都有数据时才给，否则写"数据暂未获取"
     ratio_s = ("%.2f" % ratio) if (in_ok and out_ok and tin) else NA
     b = breadth_state(d)
@@ -725,6 +743,8 @@ def sec4(d):
     # ---------- 海外宏观 ----------
     u10 = g.get("US10Y") or {}
     u10_date = u10.get("date") or NA
+    tips_row = g.get("US10Y_REAL") or {}
+    tips_date = tips_row.get("date") or NA
     boj = ("美元兑日元 <b>%s</b>（%s）" % (g_(d, "USDJPY"), gsrc(d, "USDJPY"))
            if (g.get("USDJPY") or {}).get("close") is not None else
            "美元兑日元 <span class='na'>%s</span>" % NA)
@@ -747,6 +767,9 @@ def sec4(d):
         _orow(d, "美元兑日元 USD/JPY", "USDJPY") +
         "<tr><td><b>美10Y国债收益率</b></td><td>%s</td><td>—</td>"
         "<td>美国财政部官方曲线 · %s</td></tr>" % (gy(d, "US10Y"), u10_date) +
+        "<tr><td><b>美10Y实际收益率(TIPS)</b></td><td>%s</td><td>—</td>"
+        "<td>美国财政部官方真实收益率曲线 · %s · 黄金因子②阈值 %.2f%%</td></tr>"
+        % (gy(d, "US10Y_REAL"), tips_date, config.GOLD_FACTOR_TIPS_10Y) +
         "<tr><td>美30Y国债收益率</td><td>%s</td><td>—</td>"
         "<td>美国财政部官方曲线 · %s</td></tr>" % (gy(d, "US30Y"), u10_date) +
         "<tr><td><b>Brent 原油</b></td><td>%s</td><td>%s</td>"
@@ -770,8 +793,8 @@ def sec4(d):
         y_mark = "<span class='tag g'>满足</span>" if gf["y_ok"] else "<span class='tag r'>未满足</span>"
         b_line = ("Brent <b>%.2f</b> 美元（阈值 &lt; %.0f，需再跌 <b>%.2f</b> 美元） —— %s"
                   % (gf["brent"], gf["b_th"], gf["b_gap"], b_mark))
-        y_line = ("美10Y <b>%.2f%%</b>（阈值 &lt; %.1f%%，需回落 <b>%.2f</b> 个百分点） —— %s"
-                  % (gf["us10y"], gf["y_th"], gf["y_gap"], y_mark))
+        y_line = ("美10Y<b>实际收益率(TIPS)</b> <b>%.2f%%</b>（阈值 &lt; %.2f%%，需回落 <b>%.2f</b> 个百分点） —— %s"
+                  % (gf["tips"], gf["y_th"], gf["y_gap"], y_mark))
         if gf["trigger"]:
             concl = ("<b>结论：双因子判定为「满足」</b>（任一因子达标即触发）。"
                      "黄金 002611 额外加仓信号<b>成立</b>，按既有规则执行（单次≤1000 元、间隔≥1 周）。")
@@ -782,17 +805,22 @@ def sec4(d):
             gcls = "warn"
         u = gf["u"]
         if u.get("ytd_min") is not None:
-            thr_note = ("<br><b>阈值可达性（2026 全年官方曲线）</b>：10Y 年内区间 "
-                        "<b>%.2f%% ~ %.2f%%</b>，共 %d 个发布日中有 <b>%d 天</b>低于 %.1f%% 阈值，"
-                        "最后一次低于阈值是 <b>%s</b>。"
+            thr_note = ("<br><b>阈值可达性（2026 全年官方真实收益率曲线）</b>："
+                        "10Y TIPS 年内区间 <b>%.2f%% ~ %.2f%%</b>，共 %d 个发布日中有 "
+                        "<b>%d 天</b>低于 %.2f%% 阈值，最后一次低于阈值是 <b>%s</b>。"
                         % (u["ytd_min"], u["ytd_max"], u["ytd_days"],
-                           u["days_below_thr"], config.GOLD_FACTOR_US10Y,
+                           u["days_below_thr"], config.GOLD_FACTOR_TIPS_10Y,
                            u.get("last_below_date") or "—"))
+            thr_note += ("<br><span class='na'>口径说明：2026-10-30 起因子②由「美10Y名义 "
+                         "&lt; 4.3%%」改为「10Y 实际收益率(TIPS) &lt; %.2f%%」—— 旧口径全年"
+                         "仅 58 天低于 4.3%%（最后一次 2026-04-20），实际等同永久停买；"
+                         "实际利率才是持有黄金的真实机会成本。</span>"
+                         % config.GOLD_FACTOR_TIPS_10Y)
         else:
             thr_note = ""
     else:
         b_line = "Brent —— <span class='na'>%s</span>" % NA
-        y_line = "美10Y —— <span class='na'>%s</span>" % NA
+        y_line = "美10Y实际收益率(TIPS) —— <span class='na'>%s</span>" % NA
         concl = ("<b>结论：双因子判定无法完成</b>（数据缺口）。"
                  "本报告<b>不宣称</b>信号触发，也<b>不宣称</b>未触发。")
         gcls = "warn"
@@ -1053,6 +1081,10 @@ def sec11(d):
         row("美10Y国债", gy(d, "US10Y"),
             "官方曲线 %s ｜ 美30Y %s" % ((g.get("US10Y") or {}).get("date") or NA,
                                       gy(d, "US30Y"))) +
+        row("美10Y实际收益率(TIPS)", gy(d, "US10Y_REAL"),
+            "黄金因子②阈值 %.2f%% ｜ 官方真实收益率曲线 %s"
+            % (config.GOLD_FACTOR_TIPS_10Y,
+               (g.get("US10Y_REAL") or {}).get("date") or NA)) +
         row("主力净流入", (flow_phrase(top_in) if top_in else NA),
             ("板块：%s" % top_in["name"]) if top_in else ""))
 
@@ -1093,17 +1125,23 @@ def sec5(d):
     rows, n = "", 0
     for x in ins[:3]:
         n += 1
+        _ny = x.get("net_yi")
         rows += ("<tr><td><b>%d</b></td><td><span class='up'>主力净流入</span></td>"
-                 "<td><b>%s</b></td><td class='up'>%+.2f 亿</td><td>%s</td>"
+                 "<td><b>%s</b></td><td class='up'>%s</td><td>%s</td>"
                  "<td>%s</td></tr>"
-                 % (n, x["name"], x["net_yi"], pct(x.get("pct")),
+                 % (n, x["name"],
+                    ("%+.2f 亿" % _ny) if _ny is not None else NA,
+                    pct(x.get("pct")),
                     HOLD_MAP.get(x["name"], "—")))
     for x in outs[:3]:
         n += 1
+        _ny = x.get("net_yi")
         rows += ("<tr><td><b>%d</b></td><td><span class='down'>主力净流出</span></td>"
-                 "<td><b>%s</b></td><td class='down'>%+.2f 亿</td><td>%s</td>"
+                 "<td><b>%s</b></td><td class='down'>%s</td><td>%s</td>"
                  "<td>%s</td></tr>"
-                 % (n, x["name"], x["net_yi"], pct(x.get("pct")),
+                 % (n, x["name"],
+                    ("%+.2f 亿" % _ny) if _ny is not None else NA,
+                    pct(x.get("pct")),
                     HOLD_MAP.get(x["name"], "—")))
 
     # 隐忧：逐条按数据判定，不满足的条目不出现
@@ -1324,6 +1362,19 @@ def sec6b(d):
     overall = (tot_gain / tot_inv * 100) if tot_inv else None
     nav_note = ("、".join(sorted(nav_dates)) if nav_dates else NA)
 
+    # ---- 提交时效：报告生成时刻若已过 15:00，当日减仓已无法提交 ----
+    tp_timing = ""
+    try:
+        _gdt = datetime.fromisoformat(d.get("generated_at") or "")
+        if (_gdt.hour, _gdt.minute) >= (15, 0):
+            tp_timing = ("<div class=\"box warn\"><b>⏰ 提交时效</b>：本报告生成于 "
+                         "<b>%s</b>，<b>已过当日 15:00 申赎截止线</b> —— "
+                         "上表仍处减仓义务的基金<b>今日已无法提交</b>，"
+                         "请在<b>下一个交易日 15:00 前</b>提交，"
+                         "否则按再下一个交易日的净值成交。</div>"
+                         % _gdt.strftime("%Y-%m-%d %H:%M"))
+    except Exception:
+        tp_timing = ""
     tpl = """
 <section id="s6b"><h2>六·补、基金账户（场外申赎口径 · 25 只）</h2>
 <div class="box"><b>账户概况</b>：总投入 <b>{tinv}</b> 元｜累计收益 <b>{tgain}</b> 元｜
@@ -1340,15 +1391,17 @@ def sec6b(d):
 <table><tr><th>申赎类型</th><th>只数</th><th>投入资金(元)</th><th>累计收益(元)</th><th>收益率</th></tr>{type_rows}</table>
 <h3 class="sub">止盈档位执行清单</h3>
 <table><tr><th>基金</th><th>代码</th><th>累计收益率</th><th>档位</th><th>应减市值(元)</th><th>状态</th></tr>{tp_rows}</table>
+{tp_timing}
 <div class="box warn"><b>场外口径铁律</b>：25 只全部场外申赎，<b>盘中无报价、无盘中止损</b>；
 申赎按当日收盘净值成交，<b>15:00 为当日截止线</b>，之后提交按下一交易日净值成交。
 境内 T+1 确认、赎回款 T+1 到账；QDII T+2~T+3 确认、赎回款 T+3~T+7。
 ⇒ 减仓资金<b>不可当日再投</b>（不做跨品种赎回重投）。
 <br><b>本节限制</b>：25 只的<b>份额未记录</b>，无法把「当日净值涨跌」折算成持仓金额变动
 （QDII 净值还要滞后 2~3 天）—— 本节只给净值层面的真实涨跌，不编造当日盈亏金额。</div>
+{tp_timing}
 </section>"""
     return F(tpl, rows=rows, theme_rows=theme_rows, type_rows=type_rows,
-             tp_rows=tp_rows, nav_note=nav_note,
+             tp_rows=tp_rows, nav_note=nav_note, tp_timing=tp_timing,
              tinv="%.2f" % tot_inv, tgain="%+.2f" % tot_gain,
              overall=("%+.2f%%" % overall) if overall is not None else NA,
              win=win, lose=lose, flat=flat)
@@ -1388,13 +1441,13 @@ def sec7(d):
             gold_tag = '<span class="tag g">✅ 信号成立</span>'
         else:
             gold_tag = '<span class="tag r">❌ 未满足</span>'
-        gold_txt = ("Brent <b>%.2f</b>（阈值 &lt; %.0f）%s；美10Y <b>%.2f%%</b>"
-                    "（阈值 &lt; %.1f%%）%s" % (
+        gold_txt = ("Brent <b>%.2f</b>（阈值 &lt; %.0f）%s；美10Y实际收益率(TIPS) <b>%.2f%%</b>"
+                    "（阈值 &lt; %.2f%%）%s" % (
                         gf["brent"], gf["b_th"], "满足" if gf["b_ok"] else "未满足",
-                        gf["us10y"], gf["y_th"], "满足" if gf["y_ok"] else "未满足"))
+                        gf["tips"], gf["y_th"], "满足" if gf["y_ok"] else "未满足"))
     else:
         gold_tag = '<span class="tag n">⏳ 无法判定</span>'
-        gold_txt = "Brent 与美10Y 数据暂未获取"
+        gold_txt = "Brent 与美10Y实际收益率(TIPS) 数据暂未获取"
     tpl = """
 <section id="s7"><h2>七、此前推论验证</h2>
 <table><tr><th>推论</th><th>结果</th><th>当日数据</th></tr>
@@ -1614,6 +1667,19 @@ def sec8(d):
                                % (r["name"], r["low"],
                                   "/".join("%.3f" % x for x in r["intraday_hits"]))
                                for r in intr)))
+    # ---- 执行时效：报告生成时刻若已过 15:00，当日场内委托已过连续竞价截止 ----
+    exec_timing = ""
+    try:
+        _edt = datetime.fromisoformat(d.get("generated_at") or "")
+        if (_edt.hour, _edt.minute) >= (15, 0):
+            exec_timing = ("<br><b>⏰ 执行时效</b>：本报告生成于 <b>%s</b>，"
+                           "已过当日 <b>15:00 连续竞价截止</b> —— 上述加仓建议"
+                           "<b>今日已无法按常规委托下单</b>，最早在<b>下一个交易日"
+                           "开盘</b>按同一档位执行（若券商支持夜间委托则可当晚预埋，"
+                           "以券商为准）。"
+                           % _edt.strftime("%Y-%m-%d %H:%M"))
+    except Exception:
+        exec_timing = ""
     watch_txt = ""
     if fired_watch:
         watch_txt = ("<br><b>观察档触发（不构成下单指令）</b>："
@@ -1625,19 +1691,21 @@ def sec8(d):
         concl = ("<div class='box warn'><b>今日执行结论</b>：可执行触发 <b>{n_act} / {tot}</b> 项，"
                  "<b>需要执行</b>。涉及：{names}{grand_txt}。"
                  "严格按下行阶梯的档位下单，档位已跌穿即执行，不追加、不上移档位。"
-                 "{watch}{extra}</div>"
+                 "{watch}{extra}{timing}</div>"
                  .format(n_act=len(fired_act), tot=tot, extra=extra, watch=watch_txt,
-                         grand_txt=grand_txt,
+                         grand_txt=grand_txt, timing=exec_timing,
                          names="、".join(act_detail(r) for r in fired_act)))
     elif fired_watch:
         concl = ("<div class='box good'><b>今日执行结论</b>：收盘触发 <b>{hit} / {tot}</b> 项，"
                  "但<b>全部为观察档</b>，按 1 年期纪律「1 年内不主动建仓」，"
-                 "<b>今日无需任何交易动作</b>。{watch}{extra}</div>"
-                 .format(hit=hit, tot=tot, watch=watch_txt, extra=extra))
+                 "<b>今日无需任何交易动作</b>。{watch}{extra}{timing}</div>"
+                 .format(hit=hit, tot=tot, watch=watch_txt, extra=extra,
+                         timing=exec_timing))
     else:
         concl = ("<div class='box good'><b>今日执行结论</b>：触发 <b>{hit} / {tot}</b> 项，"
                  "<b>无需任何交易动作</b>。按 1 年期纪律「不触发不动作」执行，继续等待。{extra}"
-                 "</div>".format(hit=hit, tot=tot, extra=extra))
+                 "</div>".format(hit=hit, tot=tot, extra=extra,
+                                  timing=exec_timing))
     # 最近节点：由 config.EVENTS 按当日行情日期往后推，不再写死日期
     td = d.get("trade_date") or ""
     upcoming = []
