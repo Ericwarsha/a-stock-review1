@@ -206,6 +206,10 @@ def main():
         shutil.copy(mp, "site/market.json")
         if os.path.exists("fetch.log"):
             shutil.copy("fetch.log", "site/fetch.log")
+        # 本轮成功了 → 清掉上一轮遗留的失败错误页，别让它一直挂在站点上
+        if os.path.exists("site/error.html"):
+            os.remove("site/error.html")
+            print("### 已清理上一轮遗留的 site/error.html", flush=True)
         try:
             sh([sys.executable, "update_index.py", "site"])
         except Exception as e:
