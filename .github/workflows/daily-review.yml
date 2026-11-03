@@ -1,19 +1,33 @@
 name: 每日A股持仓复盘
 on:
   schedule:
-    - cron: '30 7 * * 1-5'
+    # ⚠️ 触发时刻改过两次，原因都是 GitHub schedule 不可靠：
+    #   ① 原 '0 7 * * 1-5'（北京 15:00）→ 10/30 延后到 22:22（延迟 7.4 小时），
+    #      10/31、11/02 连续两天整天没触发。
+    #   ② GitHub 的 schedule 在 UTC **整点**最容易排队被挤掉，
+    #      所以主触发挪到 15:17（UTC 07:17）错开整点。
+    #   ③ 再加一条 16:43（UTC 08:43）做兜底：同一天跑两次是幂等的
+    #      （publish.py 写同名日期页会覆盖，update_index.py 扫目录不会重复列）。
+    - cron: '17 7 * * 1-5'
+    - cron: '43 8 * * 1-5'
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: daily-a-stock-review
+  cancel-in-progress: false
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: 等待收盘数据落定
+        if: github.event_name == 'schedule'
+        run: sleep 420
       - name: 抓取并生成并发布
         run: python publish.py
         env:
