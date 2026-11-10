@@ -94,7 +94,7 @@ def build(site):
 <title>A股持仓复盘中心</title>{css}</head><body>
 <div class="wrap">
 <h1>A股持仓复盘中心</h1>
-<div class="sub">1年期持仓执行计划 v3.0 ｜ 共 {total} 篇 ｜ 由 GitHub Actions 每日 15:30 自动生成</div>
+<div class="sub">1年期持仓执行计划 v3.0 ｜ 共 {total} 篇 ｜ 由 GitHub Actions 每日 16:30 自动生成</div>
 <div class="grid">{cards}</div>
 <div class="foot">数据来源：东方财富公开行情接口（受阻时自动降级至腾讯行情接口交叉取数，两源逐项一致）。
 未做任何推测或替代。本站不构成投资建议，入市有风险，投资需谨慎。</div>
