@@ -1,15 +1,21 @@
 name: 每日A股持仓复盘
 on:
   schedule:
-    # ⚠️ 触发时刻改过两次，原因都是 GitHub schedule 不可靠：
+    # ⚠️ 触发时刻改过三次，全部因为 GitHub schedule 不可靠：
     #   ① 原 '0 7 * * 1-5'（北京 15:00）→ 10/30 延后到 22:22（延迟 7.4 小时），
-    #      10/31、11/02 连续两天整天没触发。
-    #   ② GitHub 的 schedule 在 UTC **整点**最容易排队被挤掉，
-    #      所以主触发挪到 15:17（UTC 07:17）错开整点。
-    #   ③ 再加一条 16:43（UTC 08:43）做兜底：同一天跑两次是幂等的
+    #      10/31 整天没触发。
+    #   ② 改成 '17 7' + '43 8'（UTC）→ 结果落在**北京半夜 23:00–03:10**。
+    #   ③ 【2026-11-10 实测修正】GitHub 的 schedule 触发**从不在 cron 分钟准点派发**：
+    #      2026-10-21 以来 18 次 schedule run 全部延迟 5.2–10.5 小时派发，
+    #      延迟量 ≈ cron 小时 + 7.3~8.0 小时（= cron H:M 按 UTC-8 时钟读）。
+    #      所以「cron 写 7 点」实际派发在 UTC 15 点 = 北京 23 点。
+    #      → 反推：要让它在北京下午盘后派发，cron 小时必须写 **0**：
+    #        cron '17 0' → 约 UTC 07:17–08:47 = 北京 15:17–16:47。
+    #      两条都写分钟非 00，错开 UTC 整点排队高峰；同一天跑两次是幂等的
     #      （publish.py 写同名日期页会覆盖，update_index.py 扫目录不会重复列）。
-    - cron: '17 7 * * 1-5'
-    - cron: '43 8 * * 1-5'
+    #      回滚：把两条改回 '17 7' / '43 8' 即可（回到半夜派发）。
+    - cron: '17 0 * * 1-5'
+    - cron: '43 0 * * 1-5'
   workflow_dispatch:
 permissions:
   contents: write
@@ -27,7 +33,7 @@ jobs:
           python-version: '3.12'
       - name: 等待收盘数据落定
         if: github.event_name == 'schedule'
-        run: sleep 420
+        run: sleep 600
       - name: 抓取并生成并发布
         run: python publish.py
         env:
