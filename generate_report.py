@@ -297,6 +297,33 @@ def is_intraday(d):
     return (g.hour, g.minute) < (15, 5)
 
 
+def past_cutoff(d):
+    """本次报告所针对的交易日，其 15:00 截止线是否已过。拿不准时返回 None。
+
+    ⚠️ 不能只看 generated_at 的时钟小时：云端 runner 常在**次日凌晨**才跑
+    （实测 11/09 的收盘数据是 11/10 03:18 生成的，generated_at 小时数 = 3），
+    按「小时 ≥ 15:00」判断会误判成"未过截止线"→ 时效提示不显示，
+    让用户误以为当天还能下单。
+    正确判据 = 报告针对的交易日（trade_date）当天 15:00 是否已过。
+    """
+    td = d.get("trade_date")
+    ga = d.get("generated_at") or ""
+    if not td or not ga:
+        return None
+    try:
+        g = datetime.fromisoformat(ga)
+        if g.tzinfo is not None:
+            g = g.astimezone(CST)
+        tdate = datetime.fromisoformat(td).date()
+    except Exception:
+        return None
+    if g.date() > tdate:
+        return True        # 次日才生成 → 那个交易日的 15:00 早就过了
+    if g.date() < tdate:
+        return False
+    return (g.hour, g.minute) >= (15, 0)
+
+
 def amt_chg_note(d):
     """成交额环比的短标注（表格备注列用）。"""
     if is_intraday(d):
@@ -795,10 +822,21 @@ def sec4(d):
     if gf["known"]:
         b_mark = "<span class='tag g'>满足</span>" if gf["b_ok"] else "<span class='tag r'>未满足</span>"
         y_mark = "<span class='tag g'>满足</span>" if gf["y_ok"] else "<span class='tag r'>未满足</span>"
-        b_line = ("Brent <b>%.2f</b> 美元（阈值 &lt; %.0f，需再跌 <b>%.2f</b> 美元） —— %s"
-                  % (gf["brent"], gf["b_th"], gf["b_gap"], b_mark))
-        y_line = ("美10Y<b>实际收益率(TIPS)</b> <b>%.2f%%</b>（阈值 &lt; %.2f%%，需回落 <b>%.2f</b> 个百分点） —— %s"
-                  % (gf["tips"], gf["y_th"], gf["y_gap"], y_mark))
+        # 条件满足时写「已低于阈值 X」，未满足才写「需再跌 X」——
+        # 否则会出现「需再跌 -2.21 美元」这种反向表述（2026-11-06 实测）。
+        if gf["b_ok"]:
+            b_line = ("Brent <b>%.2f</b> 美元（阈值 &lt; %.0f，<b>已低于阈值 %.2f 美元</b>） —— %s"
+                      % (gf["brent"], gf["b_th"], abs(gf["b_gap"]), b_mark))
+        else:
+            b_line = ("Brent <b>%.2f</b> 美元（阈值 &lt; %.0f，需再跌 <b>%.2f</b> 美元） —— %s"
+                      % (gf["brent"], gf["b_th"], gf["b_gap"], b_mark))
+        if gf["y_ok"]:
+            y_line = ("美10Y<b>实际收益率(TIPS)</b> <b>%.2f%%</b>（阈值 &lt; %.2f%%，"
+                      "<b>已低于阈值 %.2f 个百分点</b>） —— %s"
+                      % (gf["tips"], gf["y_th"], abs(gf["y_gap"]), y_mark))
+        else:
+            y_line = ("美10Y<b>实际收益率(TIPS)</b> <b>%.2f%%</b>（阈值 &lt; %.2f%%，需回落 <b>%.2f</b> 个百分点） —— %s"
+                      % (gf["tips"], gf["y_th"], gf["y_gap"], y_mark))
         if gf["trigger"]:
             concl = ("<b>结论：双因子判定为「满足」</b>（任一因子达标即触发）。"
                      "黄金 002611 额外加仓信号<b>成立</b>，按既有规则执行（单次≤1000 元、间隔≥1 周）。")
@@ -1368,17 +1406,13 @@ def sec6b(d):
 
     # ---- 提交时效：报告生成时刻若已过 15:00，当日减仓已无法提交 ----
     tp_timing = ""
-    try:
-        _gdt = datetime.fromisoformat(d.get("generated_at") or "")
-        if (_gdt.hour, _gdt.minute) >= (15, 0):
-            tp_timing = ("<div class=\"box warn\"><b>⏰ 提交时效</b>：本报告生成于 "
-                         "<b>%s</b>，<b>已过当日 15:00 申赎截止线</b> —— "
-                         "上表仍处减仓义务的基金<b>今日已无法提交</b>，"
-                         "请在<b>下一个交易日 15:00 前</b>提交，"
-                         "否则按再下一个交易日的净值成交。</div>"
-                         % _gdt.strftime("%Y-%m-%d %H:%M"))
-    except Exception:
-        tp_timing = ""
+    if past_cutoff(d):
+        tp_timing = ("<div class=\"box warn\"><b>⏰ 提交时效</b>：本报告对应交易日 "
+                     "<b>%s</b>，<b>已过当日 15:00 申赎截止线</b> —— "
+                     "上表仍处减仓义务的基金<b>今日已无法提交</b>，"
+                     "请在<b>下一个交易日 15:00 前</b>提交，"
+                     "否则按再下一个交易日的净值成交。</div>"
+                     % (d.get("trade_date") or NA))
     tpl = """
 <section id="s6b"><h2>六·补、基金账户（场外申赎口径 · 25 只）</h2>
 <div class="box"><b>账户概况</b>：总投入 <b>{tinv}</b> 元｜累计收益 <b>{tgain}</b> 元｜
@@ -1673,17 +1707,13 @@ def sec8(d):
                                for r in intr)))
     # ---- 执行时效：报告生成时刻若已过 15:00，当日场内委托已过连续竞价截止 ----
     exec_timing = ""
-    try:
-        _edt = datetime.fromisoformat(d.get("generated_at") or "")
-        if (_edt.hour, _edt.minute) >= (15, 0):
-            exec_timing = ("<br><b>⏰ 执行时效</b>：本报告生成于 <b>%s</b>，"
-                           "已过当日 <b>15:00 连续竞价截止</b> —— 上述加仓建议"
-                           "<b>今日已无法按常规委托下单</b>，最早在<b>下一个交易日"
-                           "开盘</b>按同一档位执行（若券商支持夜间委托则可当晚预埋，"
-                           "以券商为准）。"
-                           % _edt.strftime("%Y-%m-%d %H:%M"))
-    except Exception:
-        exec_timing = ""
+    if past_cutoff(d):
+        exec_timing = ("<br><b>⏰ 执行时效</b>：本报告对应交易日 <b>%s</b>，"
+                       "已过当日 <b>15:00 连续竞价截止</b> —— 上述加仓建议"
+                       "<b>今日已无法按常规委托下单</b>，最早在<b>下一个交易日"
+                       "开盘</b>按同一档位执行（若券商支持夜间委托则可当晚预埋，"
+                       "以券商为准）。"
+                       % (d.get("trade_date") or NA))
     watch_txt = ""
     if fired_watch:
         watch_txt = ("<br><b>观察档触发（不构成下单指令）</b>："
