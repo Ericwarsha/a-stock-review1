@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>A股持仓每日复盘 2026-10-30</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#c9d1d9;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.75;font-size:15px}
+.wrap{display:flex;max-width:1400px;margin:0 auto}
+nav{width:232px;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid #21262d;padding:20px 0;background:#010409}
+nav h4{color:#58a6ff;font-size:12px;letter-spacing:2px;padding:0 18px 12px;border-bottom:1px solid #21262d;margin-bottom:10px}
+nav a{display:block;color:#8b949e;text-decoration:none;font-size:13px;padding:7px 18px;border-left:2px solid transparent;transition:.15s}
+nav a:hover,nav a.on{color:#58a6ff;background:#0d1117;border-left-color:#58a6ff}
+main{flex:1;min-width:0;padding:22px 26px 70px}
+.hero{background:linear-gradient(135deg,#161b22,#1c2128);border:1px solid #30363d;border-radius:12px;padding:22px 24px;margin-bottom:18px}
+.hero h1{font-size:23px;color:#e6edf3;margin-bottom:8px}
+.hero .sub{color:#8b949e;font-size:13px}
+.cards{display:grid;grid-template-columns:repeat(6,1fr);gap:11px;margin-bottom:18px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px 12px;text-align:center;cursor:pointer;transition:.18s;text-decoration:none;display:block}
+.card:hover{border-color:#58a6ff;transform:translateY(-2px)}
+.card .k{font-size:11px;color:#8b949e;margin-bottom:6px}
+.card .v{font-size:19px;font-weight:700;color:#e6edf3}
+.card .d{font-size:11px;margin-top:4px}
+.trigger{background:#1c1410;border:1px solid #9e6a03;border-left:4px solid #d29922;border-radius:10px;padding:16px 18px;margin-bottom:18px}
+.trigger.ok{background:#0f1c12;border-color:#2ea043;border-left-color:#3fb950}
+.trigger h3{color:#e3b341;font-size:15px;margin-bottom:4px}
+.trigger.ok h3{color:#3fb950}
+.trigger .cnt{font-size:25px;font-weight:800;color:#e3b341;margin:8px 0}
+.trigger.ok .cnt{color:#3fb950}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+th{background:#161b22;color:#58a6ff;text-align:left;padding:9px 11px;border:1px solid #30363d;font-weight:600;white-space:nowrap}
+td{padding:8px 11px;border:1px solid #21262d;vertical-align:top}
+tr:nth-child(even) td{background:#0f141a}
+.up{color:#f85149;font-weight:600}
+.down{color:#3fb950;font-weight:600}
+.flat{color:#8b949e}
+.na{color:#6e7681;font-style:italic}
+section{background:#0d1117;border:1px solid #21262d;border-radius:12px;padding:20px 22px;margin-bottom:18px}
+section>h2{font-size:18px;color:#e6edf3;padding-bottom:11px;margin-bottom:14px;border-bottom:1px solid #21262d}
+h3.sub{font-size:14.5px;color:#79c0ff;margin:16px 0 7px}
+p{margin:7px 0;color:#b1bac4}
+ul{margin:7px 0 7px 20px;color:#b1bac4}
+li{margin:4px 0}
+.tag{display:inline-block;padding:2px 8px;border-radius:11px;font-size:11.5px;font-weight:600;margin-right:5px}
+.tag.g{background:#0f2f1a;color:#3fb950;border:1px solid #2ea043}
+.tag.r{background:#2d1214;color:#f85149;border:1px solid #8b2c31}
+.tag.y{background:#2b2410;color:#e3b341;border:1px solid #9e6a03}
+.tag.b{background:#0c2340;color:#58a6ff;border:1px solid #1f6feb}
+.tag.n{background:#1c2128;color:#8b949e;border:1px solid #30363d}
+.box{background:#161b22;border-left:3px solid #58a6ff;padding:11px 14px;border-radius:0 7px 7px 0;margin:11px 0}
+.box.warn{border-left-color:#d29922}
+.box.risk{border-left-color:#f85149}
+.box.good{border-left-color:#3fb950}
+.foot{color:#6e7681;font-size:12px;text-align:center;padding:22px 0;border-top:1px solid #21262d;margin-top:12px}
+@media(max-width:1100px){.cards{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:768px){
+.wrap{display:block}
+nav{position:static;width:100%;height:auto;border-right:none;border-bottom:1px solid #21262d;padding:12px 0}
+nav h4{display:none}
+nav a{display:inline-block;padding:5px 12px;border-left:none;border-bottom:2px solid transparent;font-size:12px}
+nav a:hover,nav a.on{border-left:none;border-bottom-color:#58a6ff}
+main{padding:14px}
+.cards{grid-template-columns:repeat(2,1fr);gap:9px}
+.hero h1{font-size:18px}
+section{padding:15px 14px}
+table{font-size:12px;display:block;overflow-x:auto;white-space:nowrap}
+}
+</style></head><body>
+<div class="wrap"><nav><h4>目 录</h4><a href="#s1">一、今日A股行情</a><a href="#s2">二、资金面</a><a href="#s3">三、国家队/ETF</a><a href="#s4">四、消息面</a><a href="#s4b">四·补、新因子预留位</a><a href="#s5">五、涨跌成因</a><a href="#s6">六、持仓逐一复盘</a><a href="#s6b">六·补、基金账户</a><a href="#s7">七、此前推论验证</a><a href="#s8">八、策略调整建议</a><a href="#s9">九、商业航天</a><a href="#s10">十、低估板块跟踪</a><a href="#s11">附录·关键数据汇总</a></nav><main>
+<div class="hero"><h1>A股持仓每日复盘 · 2026-10-30 周五</h1>
+<div class="sub">1年期持仓执行计划 v3.0 ｜ 生成时间 2026-10-30 22:27 (UTC+8) ｜ 行情口径：实时收盘快照 ｜ 数据源：东方财富 · 新浪财经 · 腾讯财经 · 美国财政部官方收益率曲线 ｜ 结构：十章 + 新因子预留位 + 附录（共 12 块）</div></div>
+<div class="cards"><a class="card" href="#s1"><div class="k">上证指数</div><div class="v">3599.02</div><div class="d"><span class="down">-1.44%</span></div></a><a class="card" href="#s1"><div class="k">深证成指</div><div class="v">10833.78</div><div class="d"><span class="down">-2.73%</span></div></a><a class="card" href="#s1"><div class="k">创业板指</div><div class="v">2413.63</div><div class="d"><span class="down">-4.13%</span></div></a><a class="card" href="#s2"><div class="k">两市成交额</div><div class="v">16745 亿</div><div class="d"><span class="up">较前日 +7.58%</span></div></a><a class="card" href="#s2"><div class="k">涨跌家数</div><div class="v">880 / 4330</div><div class="d"><span class="down">跌多涨少</span></div></a><a class="card" href="#s8"><div class="k">加仓触发</div><div class="v">5 / 7</div><div class="d"><span class="up">需执行</span></div></a></div>
+<div class="trigger ok"><h3>✅ 有触发项，请按第八章执行</h3>
+<div class="cnt">今日触发 5 / 7</div>
+<p>有加仓或做 T 档位被跌破，请查阅第八章操作清单。</p>
+<p>盘中击穿 5 项，与收盘口径一致。</p></div>
+
+<section id="s1"><h2>一、今日A股行情</h2>
+<h3 class="sub">指数表现</h3>
+<table><tr><th>指数</th><th>收盘点位</th><th>涨跌幅</th></tr><tr><td>上证指数</td><td>3599.02</td><td><span class="down">-1.44%</span></td></tr><tr><td>深证成指</td><td>10833.78</td><td><span class="down">-2.73%</span></td></tr><tr><td>创业板指</td><td>2413.63</td><td><span class="down">-4.13%</span></td></tr><tr><td>科创50</td><td>1160.84</td><td><span class="down">-5.48%</span></td></tr><tr><td>北证50</td><td>885.74</td><td><span class="down">-2.67%</span></td></tr></table>
+<h3 class="sub">量能</h3>
+<p>两市成交额：<b>16744.68 亿元</b>（约 1.67 万亿）。较前一交易日 +7.58%</p>
+<h3 class="sub">涨跌结构</h3>
+<table><tr><th>项目</th><th>数值</th></tr><tr><td>上涨家数（沪深）</td><td>880</td></tr><tr><td>下跌家数（沪深）</td><td>4330</td></tr><tr><td>平盘家数（沪深）</td><td>84</td></tr><tr><td>跌/涨比</td><td><b>4.92 : 1</b></td></tr>
+<tr><td>涨停</td><td>47</td></tr>
+<tr><td>跌停</td><td>82</td></tr></table>
+<h3 class="sub">核心信号</h3>
+<div class="box warn"><b>权重护指数、个股普跌</b>：上证 <span class="down">-1.44%</span>、深成 <span class="down">-2.73%</span>、创业板 <span class="down">-4.13%</span>，沪深两市上涨 <b>880</b> 家 vs 下跌 <b>4330</b> 家，跌/涨比 <b>4.92</b>，下跌家数占比 <b>83.1%</b>。指数量级与个股体感明显背离。</div>
+<h3 class="sub">市场风格</h3>
+<p>纳入观察的 5 个宽基<b>全线收绿</b>，最强 上证指数 <span class="down">-1.44%</span>、最弱 科创50 <span class="down">-5.48%</span>，属普跌格局。</p>
+</section>
+<section id="s2"><h2>二、资金面（主力资金 + 市场热度）</h2>
+<h3 class="sub">主力资金分行业流向</h3>
+<table><tr><th>净流入居前</th><th>净流入(亿元)</th><th>涨跌幅</th></tr><tr><td>食品饮料</td><td class='up'>+30.05</td><td><span class="up">+0.83%</span></td></tr><tr><td>医药生物</td><td class='up'>+26.49</td><td><span class="down">-0.61%</span></td></tr><tr><td>白酒Ⅲ</td><td class='up'>+25.00</td><td><span class="up">+5.15%</span></td></tr><tr><td>白酒Ⅱ</td><td class='up'>+25.00</td><td><span class="up">+5.15%</span></td></tr><tr><td>医疗服务</td><td class='up'>+16.36</td><td><span class="up">+1.58%</span></td></tr></table>
+<table><tr><th>净流出居前</th><th>净流出(亿元)</th><th>涨跌幅</th></tr><tr><td>合成树脂</td><td class='down'>-0.26</td><td><span class="down">-4.21%</span></td></tr><tr><td>房地产服务</td><td class='down'>-0.25</td><td><span class="down">-3.03%</span></td></tr><tr><td>动物保健Ⅱ</td><td class='down'>-0.25</td><td><span class="down">-1.94%</span></td></tr><tr><td>动物保健Ⅲ</td><td class='down'>-0.25</td><td><span class="down">-1.94%</span></td></tr><tr><td>原材料供应链服务</td><td class='down'>-0.25</td><td><span class="down">-1.62%</span></td></tr></table>
+<div class="box risk">
+<b>资金流动逻辑</b>：主力净流入居前为 食品饮料、医药生物、白酒Ⅲ、白酒Ⅱ、医疗服务，净流出居前为 合成树脂、房地产服务、动物保健Ⅱ、动物保健Ⅲ、原材料供应链服务。
+流入前 5 合计 <b>122.90 亿</b>，流出前 5 合计 <b>-1.26 亿</b>，
+流出规模是流入规模的 <b>0.01 倍</b>。已获取的板块流向与持仓标的<b>无明确同向或反向对应</b>，本节不对持仓方向性下结论。
+</div>
+
+<h3 class="sub">市场热度评估</h3>
+<table><tr><th>指标</th><th>读数</th><th>数据状态</th></tr>
+<tr><td>量能</td><td>16744.68 亿元</td><td>已获取</td></tr>
+<tr><td>跌/涨家数比</td><td>4.92 : 1</td><td><span class="tag b">已获取</span></td></tr>
+<tr><td>涨停家数</td><td>47</td><td><span class="tag b">接口可回溯</span></td></tr>
+<tr><td>跌停家数</td><td>82</td><td><span class="tag b">接口可回溯</span></td></tr></table>
+<div class="box warn"><b>操作纪律</b><br>
+不新开仓、不追高；仅按第八章既定预警价执行分批加仓，不因单日资金流向改变计划。</div>
+</section>
+<section id="s3"><h2>三、国家队 / 汇金与宽基ETF持仓数据</h2>
+<div class="box">本章口径：这 4 只宽基 ETF 是<b>普通 ETF</b>，收盘价、涨跌幅、成交额、<b>规模</b>、
+<b>主力净流入</b><b>可以实时抓到</b>，下表为真实行情。</div>
+<h3 class="sub">宽基ETF资金动向（真实行情）</h3>
+<table><tr><th>标的</th><th>代码</th><th>收盘</th><th>涨跌幅</th><th>成交额</th>
+<th>规模</th><th>主力净流入</th></tr>
+<tr><td>沪深300ETF华泰柏瑞</td><td>510300</td><td>4.065</td><td><span class="down">-1.12%</span></td><td>86.14 亿</td><td>数据暂未获取</td><td><span class="na">数据暂未获取</span></td></tr><tr><td>上证50ETF华夏</td><td>510050</td><td>2.862</td><td><span class="down">-0.31%</span></td><td>21.43 亿</td><td>数据暂未获取</td><td><span class="na">数据暂未获取</span></td></tr><tr><td>中证500ETF南方</td><td>510500</td><td>6.305</td><td><span class="down">-2.85%</span></td><td>39.33 亿</td><td>数据暂未获取</td><td><span class="na">数据暂未获取</span></td></tr><tr><td>科创50ETF华夏</td><td>588000</td><td>1.228</td><td><span class="down">-5.03%</span></td><td>116.24 亿</td><td>数据暂未获取</td><td><span class="na">数据暂未获取</span></td></tr></table>
+<h3 class="sub">今日关键数据</h3>
+<p>今日 4 只宽基 ETF 中<b>收红 0 只、收绿 4 只</b>，成交额合计 <b>263.14 亿</b>。</p>
+<div class="box warn"><b>国家队行为解读</b>：<b>不可做的部分</b>——没有份额数据，
+就<b>无法区分</b>「国家队申购」与「散户抄底」；上面的价格、成交额、主力净流入只是
+<b>承接强度的代理变量</b>，<b>不等于</b>国家队申购行为，<b>不作结论</b>。<br>
+<b>可做的部分</b>：若宽基 ETF 出现<b>放量且收红</b>，只能说明宽基有增量承接，
+需与份额数据结合才谈得上国家队动作。</div>
+</section>
+<section id="s4"><h2>四、消息面汇总</h2>
+<h3 class="sub">国内政策与市场快讯</h3>
+<table><tr><th>时间</th><th>标题</th></tr>
+<tr><td>22:23:49</td><td>美股持续走低 纳斯达克100指数跌幅扩大至3%</td></tr><tr><td>22:21:43</td><td>英特尔五年期信贷违约掉期扩大至123.5个基点的纪录高位</td></tr><tr><td>22:18:05</td><td>“Token供应商”硅基流动在港股发行上市申请已获中国证监会备案接收</td></tr><tr><td>22:15:56</td><td>中邮基金拟3000万元自购旗下权益类公募基金</td></tr><tr><td>22:14:20</td><td>复旦微电：部分产品如工业级非挥发性存储器等价格有所上升</td></tr><tr><td>22:09:27</td><td>商务部：中国首次在中国—瑞士双边自贸协定中纳入保护源代码的专项条款</td></tr><tr><td>22:08:25</td><td>上海10月份拍牌明天举行 警示价92900元</td></tr><tr><td>22:05:57</td><td>广汽集团：不存在因“速成车”问题被要求实施召回的情形</td></tr><tr><td>22:05:36</td><td>商务部：中瑞双方将在原协定基础上 分别对近300个税目进一步降低关税水平</td></tr><tr><td>21:59:54</td><td>商务部就美国联邦通信委员会投票通过检测实验室限制措施答问</td></tr><tr><td>21:59:16</td><td>晶科能源飞虎3中标申能1GW海光集采</td></tr><tr><td>21:58:57</td><td>金价降了水贝卖爆了 水贝黄金门店销量翻番</td></tr><tr><td>21:58:00</td><td>维维股份：拟投资建设植物基生物智造工厂项目</td></tr><tr><td>21:55:37</td><td>英特尔跌30% 市值蒸发近1500亿美元 四季度盈利指引不及预期</td></tr><tr><td>21:55:17</td><td>中国与瑞士签署自贸协定升级议定书</td></tr><tr><td>21:53:16</td><td>克里姆林宫称炼油厂遇袭不会阻碍俄美乌三方会谈</td></tr><tr><td>21:49:00</td><td>费城半导体指数跌幅扩大至6%</td></tr><tr><td>21:46:20</td><td>美国10月芝加哥PMI为55.3 预期56.1</td></tr><tr><td>21:46:10</td><td>国际油价走高带动能源股集体上涨 埃克森美孚、雪佛龙等创历史新高</td></tr><tr><td>21:45:39</td><td>美股光通信板块普跌</td></tr><tr><td>21:45:06</td><td>美股医药股续涨 阿斯利康绩后涨超6%</td></tr><tr><td>21:43:05</td><td>礼来股价上涨4.51% 续创新高</td></tr><tr><td>21:41:59</td><td>现货金银持续扩大跌幅</td></tr><tr><td>21:40:39</td><td>里士满联储行长巴尔金表示，在应对通胀方面，问题在于速度，美国企业正面临巨大的成本压力，并表示，人工智能投资正导致需求侧通胀，而这类情况正是美联储可以加以抑制的</td></tr><tr><td>21:39:44</td><td>英伟达股价下跌3.3% 总市值跌破5万亿美元</td></tr></table>
+<p class="na">东方财富 7x24 快讯，日期 <b>2026-10-30</b>，按时间倒序取前 25 条。</p>
+<h3 class="sub">同花顺快讯（第二源 · 含异动/政策标签）</h3>
+<table><tr><th>时间</th><th>标题</th><th>标签</th><th>来源</th></tr>
+<tr><td>10-30 22:22</td><td>现货黄金持续下跌，较今年高点回撤超30%</td><td>A股,公告,港股,美股</td><td>—</td></tr><tr><td>10-30 22:19</td><td>COMEX白银期货大跌6%</td><td>美股,港股,异动,A股</td><td>—</td></tr><tr><td>10-30 22:18</td><td>安理会通过决议 将联合国哥伦比亚核查团授权延长一年</td><td>A股</td><td>—</td></tr><tr><td>10-30 22:18</td><td>“Token供应商”硅基流动在港股发行上市申请已获中国证监会备案接收</td><td>港股,A股</td><td>—</td></tr><tr><td>10-30 22:16</td><td>LME镍主力合约跌超2%</td><td>异动,A股</td><td>—</td></tr><tr><td>10-30 22:16</td><td>金价降了卖爆了 银价已腰斩</td><td>A股</td><td>—</td></tr><tr><td>10-30 22:13</td><td>张庆伟会见德国联邦议院副议长诺睿博</td><td>A股</td><td>—</td></tr><tr><td>10-30 22:12</td><td>华发股份：2026年第三季度净利润亏损27.82亿元</td><td>公告,A股</td><td>—</td></tr><tr><td>10-30 22:12</td><td>李强会见德国总统施泰因迈尔</td><td>A股</td><td>—</td></tr><tr><td>10-30 22:07</td><td>标普500能源板块和医疗保健创历史新高</td><td>美股,异动</td><td>—</td></tr><tr><td>10-30 22:06</td><td>北交所三季报披露收官，37家公司净利翻倍</td><td>A股</td><td>—</td></tr><tr><td>10-30 22:01</td><td>现货白银大跌5%</td><td>A股</td><td>—</td></tr><tr><td>10-30 22:00</td><td>NYMEX汽油主力合约涨超2%</td><td>异动,A股</td><td>—</td></tr><tr><td>10-30 22:00</td><td>商务部新闻发言人就美国联邦通信委员会投票通过检测实验室限制措施事答记者问</td><td>A股</td><td>—</td></tr><tr><td>10-30 21:59</td><td>欧洲央行管委科赫尔：如果形势不能迅速好转，就有必要采取行动</td><td>美股,港股,A股</td><td>—</td></tr></table>
+<h3 class="sub">海外宏观（含日元因子）</h3>
+<table><tr><th>指标</th><th>数据</th><th>影响</th></tr>
+<tr><td>USD/JPY</td><td>美元兑日元 <b>157.14</b>（新浪财经）</td><td>日元贬值利好出口链、压制进口成本</td></tr>
+<tr><td>日经225（今日）</td><td><b>44946.64</b>（<span class="down">-0.90%</span>）</td><td>日本股市对 BOJ 决议的即时定价（通胀明细需第三方终端）</td></tr>
+<tr><td>美债2Y（短端）</td><td>4.61% <span class='down'>-6.0 bp</span></td><td>短端利率即市场对加/降息的定价，替代"加息概率"（概率明细需第三方终端）</td></tr>
+<tr><td>10Y-2Y 利差</td><td><b>+0.37</b> 个百分点</td><td>曲线形态：倒挂 / 陡峭化</td></tr></table>
+<h3 class="sub">日本央行(BOJ)动态</h3>
+<p><b>日元因子核心结论</b>：美元兑日元 <b>157.14</b>（新浪财经）。<b>10/30 日本央行议息是关键观察窗口</b>，
+当前汇率为 157.140，隔夜美股表现 <span class="down">-2.68%</span>。</p>
+<h3 class="sub">美债与美元</h3>
+<table><tr><th>指标</th><th>数值</th><th>涨跌</th><th>来源</th></tr>
+<tr><td>美元指数 DXY</td><td>102.02</td><td><span class="up">+0.14%</span></td><td>新浪财经</td></tr><tr><td>美元兑离岸人民币</td><td>6.6516</td><td><span class="down">-0.06%</span></td><td>新浪财经</td></tr><tr><td>美元兑在岸人民币</td><td>6.6537</td><td><span class="down">-0.11%</span></td><td>新浪财经</td></tr><tr><td>美元兑日元 USD/JPY</td><td>157.14</td><td><span class="down">-0.35%</span></td><td>新浪财经</td></tr><tr><td><b>美10Y国债收益率</b></td><td>4.98% <span class='down'>-7.0 bp</span></td><td>—</td><td>美国财政部官方曲线 · 2026-10-29</td></tr><tr><td>美30Y国债收益率</td><td>5.32% <span class='down'>-5.0 bp</span></td><td>—</td><td>美国财政部官方曲线 · 2026-10-29</td></tr><tr><td><b>Brent 原油</b></td><td>113.75</td><td><span class="up">+2.66%</span></td><td>新浪财经 hf_*</td></tr></table>
+<h3 class="sub">美股隔夜表现</h3>
+<table><tr><th>指数</th><th>数值</th><th>涨跌幅</th><th>来源</th></tr>
+<tr><td>道琼斯</td><td>51952.29</td><td><span class="down">-0.75%</span></td><td>腾讯财经</td></tr><tr><td>标普500</td><td>7598.94</td><td><span class="down">-1.57%</span></td><td>腾讯财经</td></tr><tr><td>纳斯达克综合</td><td>25483.61</td><td><span class="down">-2.68%</span></td><td>腾讯财经</td></tr></table>
+<h3 class="sub">商品（持仓相关）</h3>
+<table><tr><th>品种</th><th>价格</th><th>涨跌幅</th><th>来源 / 备注</th></tr>
+<tr><td>COMEX 黄金</td><td>3908.07</td><td><span class="down">-3.06%</span></td><td>新浪财经 hf_* ｜ 场外黄金 002611 锚定</td></tr><tr><td>伦敦现货金</td><td>3899.37</td><td><span class="down">-3.03%</span></td><td>新浪财经 hf_* ｜ 与 COMEX 口径不同</td></tr><tr><td>COMEX 白银</td><td>49.15</td><td><span class="down">-6.16%</span></td><td>新浪财经 hf_*</td></tr><tr><td>NYMEX 原油 (WTI)</td><td>104.56</td><td><span class="up">+2.51%</span></td><td>新浪财经 hf_* ｜ <b>非 Brent</b></td></tr><tr><td><b>Brent 原油</b></td><td>113.75</td><td><span class="up">+2.66%</span></td><td>新浪财经 hf_*</td></tr><tr><td>LME 铝</td><td>3073.85</td><td><span class="down">-0.15%</span></td><td>新浪财经 hf_* ｜ 南山铝业成本端</td></tr></table>
+<div class="box warn"><b>黄金双因子状态更新（002611 场外）</b><br>
+因子① Brent <b>113.75</b> 美元（阈值 &lt; 100，需再跌 <b>13.75</b> 美元） —— <span class='tag r'>未满足</span><br>
+因子② 美10Y <b>4.98%</b>（阈值 &lt; 4.3%，需回落 <b>0.68</b> 个百分点） —— <span class='tag r'>未满足</span><br>
+<b>结论：双因子判定为「未满足」</b>（两个因子均未达标）。黄金 002611 额外加仓信号<b>不成立</b>，常规月定投照常，<b>不加额外仓位</b>。<br><b>阈值可达性（2026 全年官方曲线）</b>：10Y 年内区间 <b>3.97% ~ 5.31%</b>，共 208 个发布日中有 <b>58 天</b>低于 4.3% 阈值，最后一次低于阈值是 <b>2026-04-20</b>。<br>
+<b>执行</b>：维持常规月定投 1000 元；额外加仓按上述结论执行。
+</div>
+<h3 class="sub">持仓标的的消息</h3>
+<table><tr><th>标的</th><th>日期</th><th>公告 / 动态</th><th>类型</th></tr>
+<tr><td>隆基绿能</td><td>2026-10-30</td><td>隆基绿能:2026年第三季度报告</td><td>三季度报告全文、三季度报告</td></tr><tr><td>隆基绿能</td><td>2026-10-30</td><td>隆基绿能:第六届董事会2026年第五次会议决议公告</td><td>董事会决议公告、其它</td></tr><tr><td>隆基绿能</td><td>2026-10-30</td><td>隆基绿能:关于2026年前三季度计提资产减值准备的公告</td><td>其他、其它</td></tr><tr><td>隆基绿能</td><td>2026-10-29</td><td>隆基绿能:关于“隆22转债”可选择回售的第八次提示性公告</td><td>其他</td></tr><tr><td>中国一重</td><td>2026-10-29</td><td>中国一重:公告2026-043(中国第一重型机械股份公司第五届董事会第二次会议决议公告)</td><td>董事会决议公告</td></tr><tr><td>中国一重</td><td>2026-10-29</td><td>中国一重:公告2026-044(中国第一重型机械股份公司2026年第三季度报告)</td><td>三季度报告全文</td></tr><tr><td>南山铝业</td><td>2026-10-28</td><td>南山铝业:山东南山铝业股份有限公司关于补选公司第十二届董事会独立董事的公告</td><td>高管人员任职变动</td></tr><tr><td>南山铝业</td><td>2026-10-28</td><td>南山铝业:山东南山铝业股份有限公司关于为全资子公司山东南山铝业欧洲有限公司提供担保的公告</td><td>提供/对外担保公告</td></tr><tr><td>南山铝业</td><td>2026-10-28</td><td>南山铝业:山东南山铝业股份有限公司关于召开2026年第四次临时股东会的通知</td><td>召开股东大会通知</td></tr><tr><td>南山铝业</td><td>2026-10-28</td><td>南山铝业:山东南山铝业股份有限公司独立董事提名人声明与承诺(董景文)</td><td>独立董事提名人声明</td></tr></table>
+<p class="na">持仓公告来自东方财富公告接口（近 3 个自然日），关键节点：
+<b>10/29 南山铝业三季报</b>、<b>10/31 隆基绿能三季报</b>。</p>
+</section>
+<section id="s4b"><h2>四·补、【新因子预留位】</h2>
+<p class="na">本块对应《01-复盘模板.md》v2.0 的【新因子预留位】，旧版脚本漏掉了这一块，
+现按模板的三项补齐，全部由真实数据驱动。</p>
+<h3 class="sub">五维分析</h3>
+<table><tr><th>维度</th><th>今日读数</th><th>结论</th></tr>
+<tr><td><b>① 涨跌维度</b></td><td>上证 <span class="down">-1.44%</span>，涨跌家数 880 / 4330</td><td><span class='tag g'>偏弱</span></td></tr><tr><td><b>② 量能维度</b></td><td>两市成交额 16744.68 亿，环比 +7.58%</td><td><span class='tag r'>放量</span></td></tr><tr><td><b>③ 资金维度</b></td><td>主力净流入首位 <b>食品饮料</b>（主力净流入 <b>+30.05 亿</b>）；净流出首位 <b>合成树脂</b>（主力净流出 <b>-0.26 亿</b>）</td><td><span class='tag r'>资金偏流入</span></td></tr><tr><td><b>④ 情绪维度</b></td><td>涨停 <b>47</b> 家，跌停 <b>82</b> 家</td><td><span class='tag g'>情绪偏冷</span></td></tr><tr><td><b>⑤ 海外维度</b></td><td>纳斯达克综合 <span class="down">-2.68%</span>；美10Y 4.98%</td><td><span class='tag b'>隔夜参考</span></td></tr></table>
+<h3 class="sub">日元因子</h3>
+<div class="box"><b>读数</b>：美元兑日元 <b>157.140</b>（<span class="down">-0.35%</span>），较前一日走弱（美元兑日元下行） —— <span class='tag b'>日元走强</span><br>
+<b>传导</b>：日元走强（美元兑日元下行）时，人民币相对日元走弱，<b>出口链的汇兑收益被压缩</b>（南山铝业这类出口占比高的标的边际承压），但<b>进口成本下降</b>；本组合以国内标的为主，<b>该因子不是当前加减仓的主导变量</b>。<br>
+<b>关键窗口</b>：<b>10/30 日本央行议息</b>，届时需重看 USD/JPY 是否出现拐点。</div>
+<h3 class="sub">ETF持仓数据</h3>
+<table><tr><th>宽基ETF</th><th>收盘</th><th>涨跌幅</th><th>成交额</th></tr>
+<tr><td>沪深300ETF华泰柏瑞</td><td>4.065</td><td><span class="down">-1.12%</span></td><td>86.14 亿</td></tr><tr><td>上证50ETF华夏</td><td>2.862</td><td><span class="down">-0.31%</span></td><td>21.43 亿</td></tr><tr><td>中证500ETF南方</td><td>6.305</td><td><span class="down">-2.85%</span></td><td>39.33 亿</td></tr><tr><td>科创50ETF华夏</td><td>1.228</td><td><span class="down">-5.03%</span></td><td>116.24 亿</td></tr></table>
+</section>
+<section id="s5"><h2>五、涨跌成因分析</h2>
+<h3 class="sub">今日资金主线（按主力净额真实排名）</h3>
+<table><tr><th>#</th><th>方向</th><th>板块</th><th>主力净额</th>
+<th>板块涨跌</th><th>持仓关联</th></tr><tr><td><b>1</b></td><td><span class='up'>主力净流入</span></td><td><b>食品饮料</b></td><td class='up'>+30.05 亿</td><td><span class="up">+0.83%</span></td><td>—</td></tr><tr><td><b>2</b></td><td><span class='up'>主力净流入</span></td><td><b>医药生物</b></td><td class='up'>+26.49 亿</td><td><span class="down">-0.61%</span></td><td>医药创新药ETF 所在方向</td></tr><tr><td><b>3</b></td><td><span class='up'>主力净流入</span></td><td><b>白酒Ⅲ</b></td><td class='up'>+25.00 亿</td><td><span class="up">+5.15%</span></td><td>—</td></tr><tr><td><b>4</b></td><td><span class='down'>主力净流出</span></td><td><b>合成树脂</b></td><td class='down'>-0.26 亿</td><td><span class="down">-4.21%</span></td><td>—</td></tr><tr><td><b>5</b></td><td><span class='down'>主力净流出</span></td><td><b>房地产服务</b></td><td class='down'>-0.25 亿</td><td><span class="down">-3.03%</span></td><td>—</td></tr><tr><td><b>6</b></td><td><span class='down'>主力净流出</span></td><td><b>动物保健Ⅱ</b></td><td class='down'>-0.25 亿</td><td><span class="down">-1.94%</span></td><td>—</td></tr></table>
+<p><b>读法</b>：本表不预设叙事主线，只按当日主力净额排序列出前 3 流入与前 3 流出。
+判断「什么在接棒、什么在出清」应以本表实际排名为准。</p>
+<h3 class="sub">隐忧（仅列出数据已确认的项）</h3>
+<table><tr><th>隐忧</th><th>数据表现</th><th>影响</th></tr><tr><td>⚠️ 指数失真</td><td>下跌 4330 家 &gt; 上涨 880 家</td><td>指数点位不能作为加仓依据</td></tr><tr><td>⚠️ 中国一重占比过高</td><td>单只占持仓市值 37.4%</td><td>做 T 是降本唯一路径，不可加仓摊薄</td></tr><tr><td>⚠️ 持仓踩中流入方向</td><td>电池 板块 主力净流入 <b>+6.33 亿</b>，涨跌 <span class="down">-1.92%</span></td><td>隆基绿能 10/31 三季报前不加仓</td></tr></table>
+</section>
+<section id="s6"><h2>六、持仓逐一复盘</h2>
+<h3 class="sub">6.1 股票账户（场内，可实时交易）</h3>
+<table><tr><th>标的</th><th>当日表现</th><th>浮盈 / 亏</th><th>占持仓市值</th><th>市值(元)</th><th>预警状态</th></tr><tr><td><b>南山铝业</b><br><span class='na'>600219</span></td><td><span class="up">+0.71%</span></td><td><span class="down">-14.53%</span></td><td>28.7%</td><td>6405</td><td><span class="tag n">未触发</span></td></tr><tr><td><b>云计算ETF</b><br><span class='na'>516630</span></td><td><span class="down">-5.04%</span></td><td><span class="down">-16.01%</span></td><td>5.8%</td><td>1301</td><td><span class="tag g">已触发 1.380</span></td></tr><tr><td><b>医药创新药ETF</b><br><span class='na'>513120</span></td><td><span class="down">-2.70%</span></td><td><span class="down">-7.60%</span></td><td>2.6%</td><td>578</td><td><span class="tag g">已触发 1.200</span></td></tr><tr><td><b>通信ETF</b><br><span class='na'>515880</span></td><td><span class="down">-6.70%</span></td><td><span class="down">-17.24%</span></td><td>1.0%</td><td>216</td><td><span class="tag g">已触发 0.520</span><span class="tag y">+盘中 0.500 / 0.480</span></td></tr><tr><td><b>吉林化纤</b><br><span class='na'>000420</span></td><td><span class="down">-0.27%</span></td><td><span class="down">-11.24%</span></td><td>1.6%</td><td>365</td><td><span class="tag g">已触发 3.750</span><span class="tag y">+盘中 3.600</span></td></tr><tr><td><b>隆基绿能</b><br><span class='na'>601012</span></td><td><span class="down">-1.35%</span></td><td><span class="down">-39.52%</span></td><td>19.7%</td><td>4400</td><td><span class="tag n">未触发</span></td></tr><tr><td><b>中电鑫龙</b><br><span class='na'>002298</span></td><td><span class="down">-0.97%</span></td><td><span class="down">-19.33%</span></td><td>3.2%</td><td>718</td><td><span class="tag g">已触发 7.300</span></td></tr><tr><td><b>中国一重</b><br><span class='na'>601106</span></td><td><span class="down">-2.11%</span></td><td><span class="down">-21.67%</span></td><td>37.4%</td><td>8340</td><td><span class="tag n">未触发</span></td></tr></table>
+<p><b>持仓市值合计 22322 元</b>（按 5 万元总账户计约 44.6%）。
+黄金 ETF 002611 为场外独立账户，不计入本表。</p>
+<div class='box'><b>南山铝业 600219</b>　收盘 4.27　涨跌 <span class="up">+0.71%</span>　浮盈亏 -14.53%　盘中最低 4.190<br>　<span class='na'>未触发，现价高于最近档位 4.150，需再跌 0.120 才触发</span><br>　<span class='na'>三季报 10/29 是关键验证点，业绩落地前不重仓加码。</span></div><div class='box'><b>云计算ETF 516630</b>　收盘 1.30　涨跌 <span class="down">-5.04%</span>　浮盈亏 -16.01%　盘中最低 1.300<br>　<span class='na'>已触发 1.380（盘中最低 1.300）</span><br>　<span class='na'>按 1.38 / 1.28 两档阶梯加仓，间隔 ≥7 个交易日。</span></div><div class='box'><b>医药创新药ETF 513120</b>　收盘 1.16　涨跌 <span class="down">-2.70%</span>　浮盈亏 -7.60%　盘中最低 1.152<br>　<span class='na'>已触发 1.200（盘中最低 1.152）</span><br>　<span class='na'>无持仓记录，1 年期内不主动建仓，仅按 1.20 / 1.15 观察档。</span></div><div class='box'><b>通信ETF 515880</b>　收盘 0.43　涨跌 <span class="down">-6.70%</span>　浮盈亏 -17.24%　盘中最低 0.432<br>　<span class='na'>已触发 0.520；盘中最低 0.432 还击穿了 0.500 / 0.480</span><br>　<span class='na'>月定投 500 元照常；跌破 0.520 触发首档加仓。</span></div><div class='box'><b>吉林化纤 000420</b>　收盘 3.65　涨跌 <span class="down">-0.27%</span>　浮盈亏 -11.24%　盘中最低 3.600<br>　<span class='na'>已触发 3.750；盘中最低 3.600 还击穿了 3.600</span><br>　<span class='na'>仓位很小，影响有限，按 3.75 / 3.60 / 3.45 阶梯。</span></div><div class='box'><b>隆基绿能 601012</b>　收盘 11.00　涨跌 <span class="down">-1.35%</span>　浮盈亏 -39.52%　盘中最低 10.960<br>　<span class='na'>—</span><br>　<span class='na'>深度浮亏，10/31 三季报前不加仓。</span></div><div class='box'><b>中电鑫龙 002298</b>　收盘 7.18　涨跌 <span class="down">-0.97%</span>　浮盈亏 -19.33%　盘中最低 7.020<br>　<span class='na'>已触发 7.300（盘中最低 7.020）</span><br>　<span class='na'>半年计划阶段 1 探底建仓期，按 7.30 / 7.00 / 6.50 阶梯。</span></div><div class='box'><b>中国一重 601106</b>　收盘 2.78　涨跌 <span class="down">-2.11%</span>　浮盈亏 -21.67%　盘中最低 2.780<br>　<span class='na'>未触发，价格 2.78（需 ≤ 2.81，尚差 -0.03），跌幅 -2.11%（需 ≤ -3%）</span><br>　<span class='na'>占比过高，做 T 降本是唯一路径。</span></div>
+<div class="box risk"><b>集中度风险</b>：中国一重单只占持仓市值 <b>37.4%</b>，
+远超 20% 上限。按 1 年期计划，只能通过<b>做 T</b>降低成本，<b>不可通过加仓摊薄</b>。</div>
+</section>
+<section id="s6b"><h2>六·补、基金账户（场外申赎口径 · 25 只）</h2>
+<div class="box"><b>账户概况</b>：总投入 <b>116833.65</b> 元｜累计收益 <b>-10932.10</b> 元｜
+整体收益率 <b>-9.36%</b>｜4 盈 / 21 亏 / 0 平｜
+本次抓取到的净值日期：2026-10-29、2026-10-30。<br>
+<span class='na'>投入与累计收益为 App 汇总快照（基准日 2026-10-24）；单位净值、当日净值涨跌为天天基金最新披露值（真实抓取）。</span></div>
+<h3 class="sub">25 只明细</h3>
+<table><tr><th>基金</th><th>跟踪主题</th><th>申赎类型</th><th>投入资金(元)</th>
+<th>累计收益(元)</th><th>收益率</th><th>最新净值</th><th>净值日期</th>
+<th>净值当日涨跌</th><th>市值(元)</th><th>止盈档位</th></tr><tr><td><b>汇添富策略汇报混合</b><br><span class='na'>470008</span></td><td>策略/选股</td><td>场外·境内</td><td>10171.39</td><td>-804.14</td><td>-7.91%</td><td>1.9730</td><td>2026-10-30</td><td>-3.33%</td><td>9367.25</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>华夏中证电网设备主题ETF联接C</b><br><span class='na'>025857</span></td><td>电力设备/新能源</td><td>场外·境内</td><td>12279.34</td><td>-1338.20</td><td>-10.90%</td><td>0.9419</td><td>2026-10-30</td><td>-2.75%</td><td>10941.14</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>东财中证有色金属指数增强C</b><br><span class='na'>011631</span></td><td>有色/资源</td><td>场外·境内</td><td>7417.95</td><td>-1307.30</td><td>-17.62%</td><td>1.6975</td><td>2026-10-30</td><td>-2.02%</td><td>6110.65</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>永赢高端装备智选混合C</b><br><span class='na'>015790</span></td><td>高端制造/军工</td><td>场外·境内</td><td>5537.83</td><td>-135.41</td><td>-2.45%</td><td>0.9114</td><td>2026-10-30</td><td>-3.89%</td><td>5402.42</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>汇添富中证沪港深云计算产业ETF联接C</b><br><span class='na'>014544</span></td><td>云计算/AI</td><td>场外·境内</td><td>3811.15</td><td>-1003.16</td><td>-26.32%</td><td>1.3898</td><td>2026-10-30</td><td>-3.81%</td><td>2807.99</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>国投瑞银中证上游资源产业指数C</b><br><span class='na'>021461</span></td><td>有色/资源</td><td>场外·境内</td><td>5834.17</td><td>-805.01</td><td>-13.80%</td><td>1.9329</td><td>2026-10-30</td><td>-1.14%</td><td>5029.16</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>广发创新药产业ETF</b><br><span class='na'>012738</span></td><td>医药</td><td>场外·境内</td><td>2693.76</td><td>-76.78</td><td>-2.85%</td><td>0.5554</td><td>2026-10-30</td><td>-0.13%</td><td>2616.98</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>华夏科创50ETF联接C</b><br><span class='na'>011613</span></td><td>宽基/科技</td><td>场外·境内</td><td>1775.42</td><td>-224.58</td><td>-12.65%</td><td>0.9345</td><td>2026-10-30</td><td>-5.18%</td><td>1550.84</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>鹏华中证国防指数C</b><br><span class='na'>012041</span></td><td>军工</td><td>场外·境内</td><td>1927.63</td><td>-72.37</td><td>-3.75%</td><td>0.7933</td><td>2026-10-30</td><td>-3.51%</td><td>1855.26</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>易方达沪深300指数精选增强C</b><br><span class='na'>010737</span></td><td>宽基</td><td>场外·境内</td><td>1333.91</td><td>-91.76</td><td>-6.88%</td><td>0.9766</td><td>2026-10-30</td><td>-2.45%</td><td>1242.15</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>博时国正粮食产业ETF联接A</b><br><span class='na'>020650</span></td><td>农业/粮食</td><td>场外·境内</td><td>1979.35</td><td>-1039.21</td><td>-52.50%</td><td>0.8788</td><td>2026-10-30</td><td>-0.90%</td><td>940.14</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>银华集成电路混合C</b><br><span class='na'>013841</span></td><td>半导体/AI</td><td>场外·境内</td><td>1606.19</td><td>-225.65</td><td>-14.05%</td><td>1.8790</td><td>2026-10-30</td><td>-6.78%</td><td>1380.54</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>景顺长城中证沪港深红利成长低波动指数A</b><br><span class='na'>007751</span></td><td>红利/低波</td><td>场外·境内</td><td>4222.86</td><td>-399.30</td><td>-9.46%</td><td>1.2330</td><td>2026-10-30</td><td>+0.87%</td><td>3823.56</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>易方达安悦短债债券A</b><br><span class='na'>006662</span></td><td>债券/现金管理</td><td>场外·境内</td><td>4999.23</td><td>-0.77</td><td>-0.02%</td><td>1.0144</td><td>2026-10-30</td><td>-0.01%</td><td>4998.46</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>广发电力公用事业ETF联接A</b><br><span class='na'>016185</span></td><td>电力/公用</td><td>场外·境内</td><td>2472.49</td><td>+133.02</td><td>+5.38%</td><td>1.0821</td><td>2026-10-30</td><td>-0.99%</td><td>2605.51</td><td><span class='tag r'>+5%档 减30%</span></td></tr><tr><td><b>华安黄金ETF联接A</b><br><span class='na'>000216</span></td><td>黄金</td><td>场外·境内</td><td>3881.45</td><td>-268.55</td><td>-6.92%</td><td>2.9546</td><td>2026-10-30</td><td>-1.20%</td><td>3612.90</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>银华海外数字经济量化选股混合QDII C</b><br><span class='na'>016702</span></td><td>海外科技/QDII</td><td>场外·QDII</td><td>14615.55</td><td>-993.66</td><td>-6.80%</td><td>2.0163</td><td>2026-10-29</td><td>-2.63%</td><td>13621.89</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>富国中证细分化工产业主题ETF联接C</b><br><span class='na'>020274</span></td><td>化工/材料</td><td>场外·境内</td><td>5736.51</td><td>-909.61</td><td>-15.86%</td><td>1.1579</td><td>2026-10-30</td><td>-1.25%</td><td>4826.90</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>平安中证卫星产业指数C</b><br><span class='na'>025491</span></td><td>卫星/军工电子</td><td>场外·境内</td><td>2928.16</td><td>-355.70</td><td>-12.15%</td><td>0.7567</td><td>2026-10-30</td><td>-5.03%</td><td>2572.46</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>华夏中证光伏产业ETF联接C</b><br><span class='na'>012886</span></td><td>光伏/新能源</td><td>场外·境内</td><td>1423.20</td><td>-313.47</td><td>-22.03%</td><td>0.4326</td><td>2026-10-30</td><td>-2.96%</td><td>1109.73</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>嘉实医药健康股票C</b><br><span class='na'>005304</span></td><td>医药</td><td>场外·境内</td><td>653.09</td><td>+167.58</td><td>+25.66%</td><td>1.8381</td><td>2026-10-30</td><td>+1.27%</td><td>820.67</td><td><span class='tag r'>+10%档 减50%</span></td></tr><tr><td><b>广发道琼斯美国石油开发与生产指数QDII-LOF E</b><br><span class='na'>019710</span></td><td>石油/能源</td><td>场外·QDII-LOF</td><td>3030.30</td><td>+337.30</td><td>+11.13%</td><td>3.2274</td><td>2026-10-29</td><td>-0.45%</td><td>3367.60</td><td><span class='tag r'>+10%档 减50%</span></td></tr><tr><td><b>摩根标普500指数QDII C</b><br><span class='na'>019305</span></td><td>美股宽基/QDII</td><td>场外·QDII</td><td>2815.60</td><td>+127.76</td><td>+4.54%</td><td>1.6829</td><td>2026-10-29</td><td>-0.34%</td><td>2943.36</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>华夏中证绿色电力ETF联接C</b><br><span class='na'>018735</span></td><td>电力/绿电</td><td>场外·境内</td><td>5288.83</td><td>-79.56</td><td>-1.50%</td><td>1.0754</td><td>2026-10-30</td><td>-1.01%</td><td>5209.27</td><td><span class='tag n'>未触发</span></td></tr><tr><td><b>长城全球新能源汽车股票QDII-LOF C</b><br><span class='na'>018036</span></td><td>新能源车/QDII</td><td>场外·QDII-LOF</td><td>8398.29</td><td>-1253.57</td><td>-14.93%</td><td>2.3928</td><td>2026-10-29</td><td>-2.23%</td><td>7144.72</td><td><span class='tag n'>未触发</span></td></tr></table>
+<h3 class="sub">主题聚合</h3>
+<table><tr><th>跟踪主题</th><th>只数</th><th>投入资金(元)</th><th>累计收益(元)</th><th>收益率</th></tr><tr><td>海外科技/QDII</td><td>1</td><td>14615.55</td><td>-993.66</td><td>-6.80%</td></tr><tr><td>有色/资源</td><td>2</td><td>13252.12</td><td>-2112.31</td><td>-15.94%</td></tr><tr><td>电力设备/新能源</td><td>1</td><td>12279.34</td><td>-1338.20</td><td>-10.90%</td></tr><tr><td>策略/选股</td><td>1</td><td>10171.39</td><td>-804.14</td><td>-7.91%</td></tr><tr><td>新能源车/QDII</td><td>1</td><td>8398.29</td><td>-1253.57</td><td>-14.93%</td></tr><tr><td>化工/材料</td><td>1</td><td>5736.51</td><td>-909.61</td><td>-15.86%</td></tr><tr><td>高端制造/军工</td><td>1</td><td>5537.83</td><td>-135.41</td><td>-2.45%</td></tr><tr><td>电力/绿电</td><td>1</td><td>5288.83</td><td>-79.56</td><td>-1.50%</td></tr><tr><td>债券/现金管理</td><td>1</td><td>4999.23</td><td>-0.77</td><td>-0.02%</td></tr><tr><td>红利/低波</td><td>1</td><td>4222.86</td><td>-399.30</td><td>-9.46%</td></tr><tr><td>黄金</td><td>1</td><td>3881.45</td><td>-268.55</td><td>-6.92%</td></tr><tr><td>云计算/AI</td><td>1</td><td>3811.15</td><td>-1003.16</td><td>-26.32%</td></tr><tr><td>医药</td><td>2</td><td>3346.85</td><td>+90.80</td><td>+2.71%</td></tr><tr><td>石油/能源</td><td>1</td><td>3030.30</td><td>+337.30</td><td>+11.13%</td></tr><tr><td>卫星/军工电子</td><td>1</td><td>2928.16</td><td>-355.70</td><td>-12.15%</td></tr><tr><td>美股宽基/QDII</td><td>1</td><td>2815.60</td><td>+127.76</td><td>+4.54%</td></tr><tr><td>电力/公用</td><td>1</td><td>2472.49</td><td>+133.02</td><td>+5.38%</td></tr><tr><td>农业/粮食</td><td>1</td><td>1979.35</td><td>-1039.21</td><td>-52.50%</td></tr><tr><td>军工</td><td>1</td><td>1927.63</td><td>-72.37</td><td>-3.75%</td></tr><tr><td>宽基/科技</td><td>1</td><td>1775.42</td><td>-224.58</td><td>-12.65%</td></tr><tr><td>半导体/AI</td><td>1</td><td>1606.19</td><td>-225.65</td><td>-14.05%</td></tr><tr><td>光伏/新能源</td><td>1</td><td>1423.20</td><td>-313.47</td><td>-22.03%</td></tr><tr><td>宽基</td><td>1</td><td>1333.91</td><td>-91.76</td><td>-6.88%</td></tr></table>
+<h3 class="sub">申赎类型聚合</h3>
+<table><tr><th>申赎类型</th><th>只数</th><th>投入资金(元)</th><th>累计收益(元)</th><th>收益率</th></tr><tr><td>场外·境内</td><td>21</td><td>87973.91</td><td>-9149.93</td><td>-10.40%</td></tr><tr><td>场外·QDII</td><td>2</td><td>17431.15</td><td>-865.90</td><td>-4.97%</td></tr><tr><td>场外·QDII-LOF</td><td>2</td><td>11428.59</td><td>-916.27</td><td>-8.02%</td></tr></table>
+<h3 class="sub">止盈档位执行清单</h3>
+<table><tr><th>基金</th><th>代码</th><th>累计收益率</th><th>档位</th><th>应减市值(元)</th><th>状态</th></tr><tr><td>汇添富策略汇报混合</td><td>470008</td><td>-7.91%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>华夏中证电网设备主题ETF联接C</td><td>025857</td><td>-10.90%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>东财中证有色金属指数增强C</td><td>011631</td><td>-17.62%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>永赢高端装备智选混合C</td><td>015790</td><td>-2.45%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>汇添富中证沪港深云计算产业ETF联接C</td><td>014544</td><td>-26.32%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>国投瑞银中证上游资源产业指数C</td><td>021461</td><td>-13.80%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>广发创新药产业ETF</td><td>012738</td><td>-2.85%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>华夏科创50ETF联接C</td><td>011613</td><td>-12.65%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>鹏华中证国防指数C</td><td>012041</td><td>-3.75%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>易方达沪深300指数精选增强C</td><td>010737</td><td>-6.88%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>博时国正粮食产业ETF联接A</td><td>020650</td><td>-52.50%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>银华集成电路混合C</td><td>013841</td><td>-14.05%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>景顺长城中证沪港深红利成长低波动指数A</td><td>007751</td><td>-9.46%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>易方达安悦短债债券A</td><td>006662</td><td>-0.02%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>广发电力公用事业ETF联接A</td><td>016185</td><td>+5.38%</td><td>30%</td><td>782</td><td><span class='tag r'>减仓 30%</span></td></tr><tr><td>华安黄金ETF联接A</td><td>000216</td><td>-6.92%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>银华海外数字经济量化选股混合QDII C</td><td>016702</td><td>-6.80%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>富国中证细分化工产业主题ETF联接C</td><td>020274</td><td>-15.86%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>平安中证卫星产业指数C</td><td>025491</td><td>-12.15%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>华夏中证光伏产业ETF联接C</td><td>012886</td><td>-22.03%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>嘉实医药健康股票C</td><td>005304</td><td>+25.66%</td><td>50%</td><td>410</td><td><span class='tag r'>减仓 50%</span></td></tr><tr><td>广发道琼斯美国石油开发与生产指数QDII-LOF E</td><td>019710</td><td>+11.13%</td><td>50%</td><td>1684</td><td><span class='tag r'>减仓 50%</span></td></tr><tr><td>摩根标普500指数QDII C</td><td>019305</td><td>+4.54%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>华夏中证绿色电力ETF联接C</td><td>018735</td><td>-1.50%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr><tr><td>长城全球新能源汽车股票QDII-LOF C</td><td>018036</td><td>-14.93%</td><td>—</td><td>—</td><td><span class='tag n'>未触发</span></td></tr></table>
+<div class="box warn"><b>场外口径铁律</b>：25 只全部场外申赎，<b>盘中无报价、无盘中止损</b>；
+申赎按当日收盘净值成交，<b>15:00 为当日截止线</b>，之后提交按下一交易日净值成交。
+境内 T+1 确认、赎回款 T+1 到账；QDII T+2~T+3 确认、赎回款 T+3~T+7。
+⇒ 减仓资金<b>不可当日再投</b>（不做跨品种赎回重投）。
+<br><b>本节限制</b>：25 只的<b>份额未记录</b>，无法把「当日净值涨跌」折算成持仓金额变动
+（QDII 净值还要滞后 2~3 天）—— 本节只给净值层面的真实涨跌，不编造当日盈亏金额。</div>
+</section>
+<section id="s7"><h2>七、此前推论验证</h2>
+<table><tr><th>推论</th><th>结果</th><th>当日数据</th></tr>
+<tr><td>有色为第一方向</td><td><span class="tag y">◐ 部分可判（缺资金流）</span></td><td>有色金属 当日 <span class='down'><span class="down">-2.63%</span></span>；板块主力资金流数据暂未获取，<b>资金面结论暂不下</b></td></tr>
+<tr><td>黄金 ETF 双因子加仓信号</td><td><span class="tag r">❌ 未满足</span></td><td>Brent <b>113.75</b>（阈值 &lt; 100）未满足；美10Y <b>4.98%</b>（阈值 &lt; 4.3%）未满足</td></tr>
+<tr><td>015790 赎回（规避风险）</td><td><span class="tag g">✅ 已完成</span></td><td>已赎回</td></tr>
+<tr><td>南山铝业三季报后决策</td><td><span class="tag y">⏳ 待验证</span></td><td>10/29 披露</td></tr>
+<tr><td>隆基绿能三季报后决策</td><td><span class="tag y">⏳ 待验证</span></td><td>10/31 披露</td></tr>
+<tr><td>513120 不追高，回调加仓</td><td><span class="tag y">⚡ 已触发观察档</span></td><td>现价 1.16，收盘已跌破 1.200 观察档</td></tr>
+<tr><td>中国一重做 T 降成本</td><td><span class="tag b">✅ 执行中</span></td><td>现价 2.78，未达 2.81 买点</td></tr>
+<tr><td>通信 ETF 月定投 500 元</td><td><span class="tag b">✅ 执行中</span></td><td>当日 <span class="down">-6.70%</span>，跑输上证 5.26 个百分点。</td></tr>
+<tr><td>1 年期执行计划 v3.0</td><td><span class="tag b">✅ 框架运行</span></td><td>本日收盘口径 5/7 触发，盘中口径 5/7 击穿</td></tr></table>
+</section>
+<section id="s8"><h2>八、策略调整建议</h2>
+<div class='box warn'><b>今日执行结论</b>：可执行触发 <b>4 / 7</b> 项，<b>需要执行</b>。涉及：通信ETF（0.520→<b>250 元</b> / 0.500→<b>500 元</b> / 0.480→<b>500 元</b>　<b>合计 1250 元</b>）、云计算ETF（1.380→<b>500 元</b>　<b>合计 500 元</b>）、吉林化纤（3.750→<b>200 元</b> / 3.600→<b>200 元</b>　<b>合计 400 元</b>）、中电鑫龙（7.300→<b>500 元</b>　<b>合计 500 元</b>），<b>今日加仓/买入合计 2650 元</b>。严格按下行阶梯的档位下单，档位已跌穿即执行，不追加、不上移档位。<br><b>观察档触发（不构成下单指令）</b>：医药创新药ETF（1.200） —— 按 1 年期纪律「1 年内不主动建仓」，<b>只记录、不买入</b>。</div>
+<h3 class="sub">触发监控面板（下行触发：价格从上方跌破才触发）</h3>
+<table><tr><th>标的</th><th>档位性质</th><th>收盘价</th><th>盘中最低</th><th>档位</th><th>状态</th><th>应下单金额</th><th>判定说明</th></tr><tr><td>南山铝业</td><td><span class='tag b'>加仓档</span></td><td>4.270</td><td>4.190<br><span class='na'>-1.18%</span></td><td>4.15 / 3.95 / 3.75</td><td><span class='tag n'>未触发</span></td><td>—</td><td>未触发，现价高于最近档位 4.150，需再跌 0.120 才触发</td></tr><tr><td>通信ETF</td><td><span class='tag b'>加仓档</span></td><td>0.432</td><td>0.432<br><span class='na'>-6.70%</span></td><td>0.52 / 0.5 / 0.48</td><td><span class='tag g'>已触发 0.520</span><span class='tag y'>+盘中 0.500 / 0.480</span></td><td>0.520→<b>250 元</b> / 0.500→<b>500 元</b> / 0.480→<b>500 元</b>　<b>合计 1250 元</b></td><td>已触发 0.520；盘中最低 0.432 还击穿了 0.500 / 0.480</td></tr><tr><td>云计算ETF</td><td><span class='tag b'>加仓档</span></td><td>1.301</td><td>1.300<br><span class='na'>-5.11%</span></td><td>1.38 / 1.28</td><td><span class='tag g'>已触发 1.380</span></td><td>1.380→<b>500 元</b>　<b>合计 500 元</b></td><td>已触发 1.380（盘中最低 1.300）</td></tr><tr><td>吉林化纤</td><td><span class='tag b'>加仓档</span></td><td>3.650</td><td>3.600<br><span class='na'>-1.64%</span></td><td>3.75 / 3.6 / 3.45</td><td><span class='tag g'>已触发 3.750</span><span class='tag y'>+盘中 3.600</span></td><td>3.750→<b>200 元</b> / 3.600→<b>200 元</b>　<b>合计 400 元</b></td><td>已触发 3.750；盘中最低 3.600 还击穿了 3.600</td></tr><tr><td>中电鑫龙</td><td><span class='tag b'>加仓档</span></td><td>7.180</td><td>7.020<br><span class='na'>-3.17%</span></td><td>7.3 / 7.0 / 6.5</td><td><span class='tag g'>已触发 7.300</span></td><td>7.300→<b>500 元</b>　<b>合计 500 元</b></td><td>已触发 7.300（盘中最低 7.020）</td></tr><tr><td>中国一重（做T买点）</td><td><span class='tag y'>做T档</span></td><td>2.780</td><td>2.780<br><span class='na'>-2.11%</span></td><td>2.81</td><td><span class='tag n'>未触发</span></td><td>—</td><td>未触发，价格 2.78（需 ≤ 2.81，尚差 -0.03），跌幅 -2.11%（需 ≤ -3%）</td></tr><tr><td>医药创新药ETF</td><td><span class='tag n'>观察档</span></td><td>1.155</td><td>1.152<br><span class='na'>-2.95%</span></td><td>1.2 / 1.15</td><td><span class='tag g'>已触发 1.200</span></td><td>1.200→500 元（<b>记录，不下单</b>）</td><td>已触发 1.200（盘中最低 1.152）</td></tr></table>
+<div class="box"><b>档位性质怎么读</b>：<span class='tag b'>加仓档</span> 跌穿即按阶梯下单；
+<span class='tag n'>观察档</span> 按 1 年期纪律「1 年内不主动建仓」，<b>只记录不买入</b>；
+<span class='tag y'>做T档</span> 需同时满足价格与跌幅两个条件，只用浮动仓、不动底仓。</div>
+<div class="box"><b>「应下单金额」列怎么读</b>：命中哪一档就下哪一档的金额，
+多档同时命中则<b>逐档累加</b>（如 0.520→250 元 + 0.500→500 元 + 0.480→500 元 ＝ 1250 元）。
+金额与《同花顺价格预警配置v2.0》逐档对齐，<b>不加码、不上移档位</b>。</div>
+<div class="box warn"><b>两套口径必须都看</b>：加仓触发是<b>下行触发</b>，现价<b>从上方跌破</b>某档位才触发。
+同花顺预警为<b>盘中实时触发</b>，因此「盘中最低」列才是预警实际会响的那一刻；
+「收盘价」列只是当日结束时的状态。V 型反转日（如早盘深跌、午后拉回）两者会明显背离，
+<b>收盘口径会漏判</b>，以盘中最低列为准。收盘未触发时，判定说明给出的是
+「还需下跌多少元」，不是价格上涨空间。</div>
+<h3 class="sub">1 年期执行计划 v3.0 时间窗口</h3>
+<table><tr><th>日期</th><th>事件</th><th>重要性</th></tr><tr><td>2026-10-27</td><td>美联储 FOMC 议息</td><td>★★★★</td></tr><tr><td>2026-10-29</td><td>南山铝业三季报</td><td>★★★</td></tr><tr><td>2026-10-30</td><td>日本央行议息</td><td>★★★</td></tr><tr><td>2026-10-31</td><td>隆基绿能三季报</td><td>★★★</td></tr><tr><td>2026-11-03</td><td>美国10月非农</td><td>★★</td></tr><tr><td>2026-11-03</td><td>美国中期选举</td><td>★★★</td></tr><tr><td>2026-11-07</td><td>美联储议息</td><td>★★★</td></tr><tr><td>2026-12-15</td><td>中央经济工作会议</td><td>★★★★</td></tr><tr><td>2027-04-15</td><td>中电鑫龙半年评估</td><td>★★★★</td></tr><tr><td>2027-10-15</td><td>1年期到期评估</td><td>★★★★★</td></tr></table>
+<p><b>最近节点（自 2026-10-30 起）</b>：10/30 日本央行议息 → 10/31 隆基绿能三季报 → 11/03 美国10月非农。<br>未来 5 天内有 <b>日本央行议息 10/30、隆基绿能三季报 10/31、美国中期选举 11/03</b> —— <b>事件落地前不建议新增仓位</b>。</p>
+<h3 class="sub">加仓纪律</h3>
+<ul>
+<li>加仓间隔 ≥ 7 个交易日</li>
+<li>每月至少 1 次加仓（保证）</li>
+<li>下跌趋势可延长至 2 周 1 次</li>
+<li>中国一重仅做 T，<b>不加仓摊薄</b></li>
+</ul>
+</section>
+<section id="s9"><h2>九、商业航天 / 太空产业 —— 长期观察</h2>
+<h3 class="sub">方向持仓记录</h3>
+<table><tr><th>标的</th><th>代码</th><th>持有市值(元)</th><th>持有份额</th>
+<th>最新单位净值</th><th>投入本金(元)</th><th>成本单价</th><th>持有收益(元)</th></tr>
+<tr><td>永赢高端装备智选混合C</td><td>015790</td><td>5402.42</td><td>5696.95</td>
+<td>0.9114 元/份</td><td>5537.83</td><td>0.9719</td><td>-135.41</td></tr></table>
+<p class="na">场外基金 · T日收盘净值成交，T+1确认。代理 ETF：sh512660 军工ETF国泰 —— 当日 0.982（<span class="down">-3.63%</span>）。
+方向归属：商业航天/高端装备方向的唯一场外载体，计入「军工/高端装备/卫星」方向</p>
+<div class="box"><b>口径已确认</b>：持有市值 5402.42 元、持有收益 -135.41 元（用户 2026-10-30 提供）；
+投入本金 = 市值 − 持有收益 = <b>5537.83 元</b>；份额 5696.95 份 = 5402.42 ÷ 2026-10-30 单位净值 <b>0.9114</b> 元/份
+（天天基金历史净值核对，5696.95 × 0.9114 = 5402.42 逐位吻合）；成本单价 = 5537.83 ÷ 5696.95 = <b>0.9719</b> 元/份。
+本基金同时出现在「六·补、基金账户」的 25 只明细里。</div>
+<h3 class="sub">今日产业指标速报</h3>
+<table><tr><th>指标</th><th>状态</th><th>说明</th></tr>
+<tr><td><b>发射日历</b></td><td>已接入 · 近端 6 次</td><td>NextSpaceflight 全球发射日历</td></tr></table>
+<div class="box warn">本章为长期产业跟踪，<b>发射日历已接真实数据</b>（下表，NextSpaceflight 公开 API）。
+发射日历口径为<b>全球</b>任务（商业/军用/科研混合），只作产业活跃度观测，
+<b>不等同于</b>「中国商业航天发射计划」——方向归属以持仓与代理 ETF 为准。</div>
+<h3 class="sub">近期全球发射安排（NextSpaceflight，北京时间）</h3>
+<table><tr><th>时间</th><th>任务</th><th>状态</th></tr>
+<tr><td>10-31 02:21</td><td>GSLV Mk II | IRNSS-1L (NVS-03)</td><td>Go for Launch</td></tr><tr><td>10-31 12:02</td><td>Falcon 9 Block 5 | Starlink Group 15-18</td><td>Go for Launch</td></tr><tr><td>11-03 00:00</td><td>Electron | The Sea God Surveys (iQPS Launch 9)</td><td>To Be Confirmed</td></tr><tr><td>11-03 08:10</td><td>Kinetica 2 | SpaceSail Polar Group TBD?</td><td>Go for Launch</td></tr><tr><td>11-03 09:42</td><td>Falcon 9 Block 5 | USSF-432</td><td>Go for Launch</td></tr><tr><td>11-04 13:00</td><td>Mir | Demo Flight</td><td>To Be Confirmed</td></tr></table>
+<h3 class="sub">配置框架状态</h3>
+<table><tr><th>层级</th><th>目标仓位</th><th>当前状态</th></tr>
+<tr><td>第一层 指数化底仓</td><td>50-60%</td><td><span class="tag n">未建立</span></td></tr>
+<tr><td>第二层 产业链卫星仓</td><td>25-35%</td><td><span class="tag b">由 永赢高端装备智选混合C 承担</span></td></tr>
+<tr><td>第三层 事件仓</td><td>≤10-15%</td><td><span class="tag n">未建立</span></td></tr></table>
+</section>
+<section id="s10"><h2>十、低估 · 低拥挤板块跟踪</h2>
+<h3 class="sub">【① 稀有小金属 / 稀有资源】</h3>
+<table><tr><th>指标</th><th>今日数据</th><th>涨跌</th></tr>
+<tr><td>有色金属板块涨跌</td><td>有色金属</td><td class='down'><span class="down">-2.63%</span></td></tr><tr><td>小金属概念涨跌</td><td><span class='na'>数据暂未获取</span></td><td><span class='na'>数据暂未获取</span></td></tr><tr><td>LME 铝价</td><td>3073.85 美元/吨</td><td class='down'><span class="down">-0.15%</span></td></tr></table>
+<table><tr><th>监控标的</th><th>今日数据</th><th>涨跌</th></tr>
+<tr><td>有色金属ETF南方 512400</td><td>1.395</td><td><span class="down">-1.97%</span></td></tr><tr><td>稀有金属ETF嘉实 562800</td><td>0.686</td><td><span class="down">-2.70%</span></td></tr><tr><td>电力ETF广发 159611</td><td>1.026</td><td><span class="down">-0.77%</span></td></tr><tr><td>红利低波ETF华泰柏瑞 512890</td><td>1.243</td><td><span class="up">+0.57%</span></td></tr></table>
+<h3 class="sub">①-估值双条件判定</h3>
+<table><tr><th>指数</th><th>PE</th><th>PE历史分位</th><th>股息率</th><th>PE腿</th><th>综合判定</th></tr>
+<tr><td>中证有色</td><td>13.41</td><td>5%</td><td><span class='na'>缺数据（免费接口不提供）</span></td><td><span class='tag g'>通过</span></td><td><span class='tag n'>条件不全</span></td></tr><tr><td>中证稀有</td><td>17.69</td><td>16%</td><td><span class='na'>缺数据（免费接口不提供）</span></td><td><span class='tag g'>通过</span></td><td><span class='tag n'>条件不全</span></td></tr></table>
+<p class="na">数据源：中证指数官网 index-perf（peg 字段＝PE，2431 根日K自算历史分位）。</p>
+<div class='box'><b>信号检查（双条件 · 同构规则）</b>：中证有色 PE 13.41、历史分位 5%（PE 腿通过）；中证稀有 PE 17.69、历史分位 16%（PE 腿通过）。判定规则同【②】：<b>股息率 ≥ 1.5%　AND　PE 历史分位 ≤ 30%</b>。<b>股息率腿对金属类缺数据</b>（中证官网不提供、蛋卷无金属行业），因此本块<b>只完成 PE 腿</b>，<b>双条件未闭合 → 不自动触发建底仓</b>；PE 腿通过只说明估值处于历史低位，仍需人工确认股息率后再决定。</div>
+<div class="box warn"><b>信号检查</b><br>
+有色金属 当日 <span class='down'><span class="down">-2.63%</span></span>，但板块主力资金流数据暂未获取；<b>结论：介入信号未触发</b>（缺资金流确认，方向待观察）。</div>
+<h3 class="sub">【② 电力与公用事业（压舱底仓）】</h3>
+<table><tr><th>指标</th><th>今日数据</th><th>涨跌</th></tr>
+<tr><td>电力ETF 159611</td><td>1.026</td><td><span class="down">-0.77%</span></td></tr>
+<tr><td>红利低波ETF 512890</td><td>1.243</td><td><span class="up">+0.57%</span></td></tr>
+<tr><td>主力净流入(公用事业)</td><td>数据暂未获取</td><td>板块级资金流</td></tr></table>
+<h3 class="sub">②-估值双条件判定</h3>
+<table><tr><th>指数</th><th>股息率</th><th>PE</th><th>PE历史分位</th><th>PB历史分位</th><th>综合判定</th></tr>
+<tr><td>红利低波</td><td>4.51%</td><td>9.38</td><td>80%</td><td>69%</td><td><span class='tag n'>不低估（PE分位偏高）</span></td></tr><tr><td>中证红利</td><td>4.49%</td><td>9.42</td><td>90%</td><td>63%</td><td><span class='tag n'>不低估（两腿均未过）</span></td></tr><tr><td>上证红利</td><td>4.43%</td><td>9.62</td><td>99%</td><td>71%</td><td><span class='tag n'>不低估（两腿均未过）</span></td></tr></table>
+<p class="na">数据源：蛋卷指数估值（估值日 10-30）；PE 分位区间为其历史分位。</p>
+<div class='box'><b>信号检查（双条件）</b>：红利低波 股息率 4.51%、PE 分位 80%（不低估（PE分位偏高））；中证红利 股息率 4.49%、PE 分位 90%（不低估（两腿均未过））；上证红利 股息率 4.43%、PE 分位 99%（不低估（两腿均未过））。判定规则：<b>股息率 ≥ 4.5%　AND　PE 历史分位 ≤ 30%</b>，两条件同时成立才算低估。股息率<b>自身</b>的历史分位免费接口不提供，此处用 PE 历史分位作估值冷热参照，<b>不与股息率分位混用</b>。<b>结论：观察，不建底仓</b> —— 三个红利系指数均未同时满足「股息率 ≥ 4.5% 且 PE 历史分位 ≤ 30%」双条件。</div>
+<p class="na">电力ETF 当日 <span class="down">-0.77%</span>，跑赢上证 0.67 个百分点；红利低波 当日 <span class="up">+0.57%</span>，跑赢上证 2.01 个百分点。</p>
+<h3 class="sub">【监控节奏状态行】</h3>
+<table><tr><th>标的</th><th>最新价</th><th>信号状态</th><th>连续相对强弱（对上证）</th></tr>
+<tr><td>有色金属ETF南方 512400</td><td>1.395</td><td>当日 <span class="down">-1.97%</span>，跑输上证 0.53 个百分点</td><td><span class='down'>连续 3 日跑输上证</span></td></tr><tr><td>稀有金属ETF嘉实 562800</td><td>0.686</td><td>当日 <span class="down">-2.70%</span>，跑输上证 1.26 个百分点</td><td><span class='down'>连续 2 日跑输上证</span></td></tr><tr><td>电力ETF广发 159611</td><td>1.026</td><td>当日 <span class="down">-0.77%</span>，跑赢上证 0.67 个百分点</td><td><span class='up'>连续 2 日跑赢上证</span></td></tr><tr><td>红利低波ETF华泰柏瑞 512890</td><td>1.243</td><td>当日 <span class="up">+0.57%</span>，跑赢上证 2.01 个百分点</td><td><span class='up'>连续 2 日跑赢上证</span></td></tr></table>
+<p class="na">连续相对强弱＝逐日比较该标的与上证的日涨跌幅，从最新一根日K（2026-10-30）往前数连续同向的天数。</p>
+</section>
+<section id="s11"><h2>附录：关键数据汇总</h2>
+<table><tr><th>品类</th><th>数值</th><th>备注</th></tr>
+<tr><td>上证指数</td><td>3599.02（<span class="down">-1.44%</span>）</td><td>深证成指 10833.78（<span class="down">-2.73%</span>）</td></tr><tr><td>创业板指</td><td>2413.63（<span class="down">-4.13%</span>）</td><td>科创50 <span class="down">-5.48%</span></td></tr><tr><td>两市成交额</td><td>16744.68 亿</td><td>较前日 +7.58%</td></tr><tr><td>现货黄金</td><td>3899.37 美元（<span class="down">-3.03%</span>）</td><td>COMEX 黄金 3908.07</td></tr><tr><td>Brent原油</td><td>113.75 美元（<span class="up">+2.66%</span>）</td><td>WTI 104.56（<b>非 Brent</b>）</td></tr><tr><td>USD/JPY</td><td>157.140（<span class="down">-0.35%</span>）</td><td>10/30 日本央行议息</td></tr><tr><td>美元指数</td><td>102.02（<span class="up">+0.14%</span>）</td><td>DXY</td></tr><tr><td>美10Y国债</td><td>4.98% <span class='down'>-7.0 bp</span></td><td>官方曲线 2026-10-29 ｜ 美30Y 5.32% <span class='down'>-5.0 bp</span></td></tr><tr><td>主力净流入</td><td>主力净流入 <b>+30.05 亿</b></td><td>板块：食品饮料</td></tr><tr><td>基金账户·总投入</td><td>116833.65 元</td><td>25 只场外，累计收益 -10932.10 元（-9.36%）</td></tr><tr><td>基金账户·当前市值</td><td>105901.55 元</td><td>＝总投入 + 累计收益（App 口径快照）</td></tr></table>
+<p class="na">本报告由脚本基于公开接口自动生成，标注「数据暂未获取」的字段表示该接口未提供，
+<b>未做任何推测、插值或替代</b>。数据源：东方财富 · 新浪财经 · 腾讯财经 · 美国财政部官方收益率曲线。</p>
+</section>
+<div class="foot">本报告由脚本基于公开行情接口自动生成，<b>不构成投资建议</b>。
+标注「数据暂未获取」的字段表示该接口未提供，<b>未做任何推测、插值或替代</b>。
+入市有风险，投资需谨慎。</div>
+</main></div>
+<script>
+document.querySelectorAll('nav a').forEach(function(a){
+  a.addEventListener('click',function(){
+    document.querySelectorAll('nav a').forEach(function(x){x.classList.remove('on')});
+    this.classList.add('on');
+  });
+});
+</script>
+</body></html>
